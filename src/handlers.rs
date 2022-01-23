@@ -2,7 +2,7 @@ use crate::assets::{CSS_STR, JS_STR};
 use crate::templates::TemplateName;
 use chrono::prelude::*;
 use handlebars::Handlebars;
-use pulldown_cmark::{html, Options, Parser};
+use pulldown_cmark::{html, Event, HeadingLevel, Options, Parser, Tag};
 use regex::Regex;
 use serde::Serialize;
 use serde_json::json;
@@ -85,15 +85,31 @@ pub fn run_new(name: String) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn md_to_html(path: String, options: Options) -> Result<String, Box<dyn Error>> {
+fn md_to_html(path: String, options: Options) -> Result<(String, String), Box<dyn Error>> {
     let md_str = fs::read_to_string(path)?;
-    let parser = Parser::new_ext(&md_str, options);
+    let mut parser = Parser::new_ext(&md_str, options);
+    let mut inside_header = false;
+    let mut title = String::new();
+    for event in parser {
+        match event {
+            Event::Start(Tag::Heading(HeadingLevel::H1, _, _)) => inside_header = true,
+            Event::Text(text) => {
+                if inside_header {
+                    title = text.to_string();
+                    break;
+                }
+            }
+            _ => (),
+        };
+    }
+
+    parser = Parser::new_ext(&md_str, options);
     let mut html_str = String::new();
     html::push_html(&mut html_str, parser);
-    Ok(html_str)
+    Ok((title, html_str))
 }
 
-fn for_each_dir_entry<F>(dir: &str, re: Regex, f: F) -> Result<(), Box<dyn Error>>
+fn for_each_dir_entry<F>(dir: &str, re: &Regex, f: F) -> Result<(), Box<dyn Error>>
 where
     F: Fn(&str) -> Result<(), Box<dyn Error>>,
 {
@@ -140,13 +156,13 @@ pub fn run_build(input_dir: String, output_dir: String) -> Result<(), Box<dyn Er
 
     let mut options = Options::empty();
     options.insert(Options::ENABLE_FOOTNOTES);
-    let index_html = md_to_html(format!("{input_dir}/index.md"), options)?;
+    let (index_title, index_html) = md_to_html(format!("{input_dir}/index.md"), options)?;
 
     for_each_dir_entry(
         &format!("{input_dir}/pages/"),
-        Regex::new(r"^[A-Za-z0-9\-]+\.md$")?,
+        &Regex::new(r"^[A-Za-z0-9\-]+\.md$")?,
         |name: &str| -> Result<(), Box<dyn Error>> {
-            let page_html = md_to_html(format!("{input_dir}/pages/{name}"), options)?;
+            let (title, page_html) = md_to_html(format!("{input_dir}/pages/{name}"), options)?;
             println!("{}", page_html);
             Ok(())
         },
@@ -157,10 +173,16 @@ pub fn run_build(input_dir: String, output_dir: String) -> Result<(), Box<dyn Er
     )?;
     for_each_dir_entry(
         &format!("{input_dir}/posts/"),
-        re,
+        &re,
         |name: &str| -> Result<(), Box<dyn Error>> {
-            let post_html = md_to_html(format!("{input_dir}/posts/{name}"), options)?;
-            println!("{}", name);
+            let caps = re.captures(name).expect("match already performed");
+            let dt = Utc.ymd(
+                caps["year"].parse()?,
+                caps["month"].parse()?,
+                caps["month"].parse()?,
+            );
+            let (title, post_html) = md_to_html(format!("{input_dir}/posts/{name}"), options)?;
+            println!("{} {} {}", name, title, dt.format("%b %d, %Y"));
             Ok(())
         },
     )?;
