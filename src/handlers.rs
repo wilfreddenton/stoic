@@ -2,6 +2,8 @@ use crate::assets::{CSS_STR, JS_STR};
 use crate::templates::TemplateName;
 use chrono::prelude::*;
 use handlebars::Handlebars;
+use pulldown_cmark::{html, Options, Parser};
+use regex::Regex;
 use serde::Serialize;
 use serde_json::json;
 use std::error::Error;
@@ -24,7 +26,7 @@ struct Post {
     filename: String,
     title: String,
     created_at: String,
-    content: String,
+    contents: String,
 }
 
 #[derive(Serialize)]
@@ -39,6 +41,7 @@ struct TemplateArgs<'a> {
     page_type: PageType,
     path: &'a [Breadcrumb],
     posts: &'a [Post],
+    contents: String,
 }
 
 fn create_file(path: String, contents: String) -> Result<(), Box<dyn Error>> {
@@ -82,27 +85,88 @@ pub fn run_new(name: String) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn md_to_html(path: String, options: Options) -> Result<String, Box<dyn Error>> {
+    let md_str = fs::read_to_string(path)?;
+    let parser = Parser::new_ext(&md_str, options);
+    let mut html_str = String::new();
+    html::push_html(&mut html_str, parser);
+    Ok(html_str)
+}
+
+fn for_each_dir_entry<F>(dir: &str, re: Regex, f: F) -> Result<(), Box<dyn Error>>
+where
+    F: Fn(&str) -> Result<(), Box<dyn Error>>,
+{
+    let mut entries = fs::read_dir(dir)?
+        .filter_map(|e| e.ok())
+        .collect::<Vec<_>>();
+    entries.sort_by_key(|e| e.path());
+    for entry in entries {
+        let ft = entry.file_type()?;
+        if let Ok(name) = &entry.file_name().into_string() {
+            if ft.is_file() && re.is_match(name) {
+                if let Err(e) = f(name) {
+                    return Err(e);
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 pub fn run_build(input_dir: String, output_dir: String) -> Result<(), Box<dyn Error>> {
     let mut h = Handlebars::new();
-    let args = &json!(TemplateArgs {
+    let mut args = TemplateArgs {
         title: "test".to_string(),
-        page_type: PageType::Posts,
+        page_type: PageType::Index,
         path: &[Breadcrumb {
             name: "Posts".to_string(),
-            link: "/posts".to_string()
+            link: "/posts".to_string(),
         }],
         posts: &[Post {
             filename: "test.html".to_string(),
             title: "Test".to_string(),
             created_at: "Feb 02, 2022".to_string(),
-            content: "foobar".to_string(),
+            contents: "foobar".to_string(),
         }],
-    });
+        contents: String::new(),
+    };
+
     for name in TemplateName::iter() {
         let template_str = fs::read_to_string(format!("{input_dir}/templates/{name}.hbs"))?;
         h.register_template_string(&name.to_string(), template_str)?;
     }
-    let out = h.render("base", args)?;
+
+    let mut options = Options::empty();
+    options.insert(Options::ENABLE_FOOTNOTES);
+    let index_html = md_to_html(format!("{input_dir}/index.md"), options)?;
+
+    for_each_dir_entry(
+        &format!("{input_dir}/pages/"),
+        Regex::new(r"^[A-Za-z0-9\-]+\.md$")?,
+        |name: &str| -> Result<(), Box<dyn Error>> {
+            let page_html = md_to_html(format!("{input_dir}/pages/{name}"), options)?;
+            println!("{}", page_html);
+            Ok(())
+        },
+    )?;
+
+    let re = Regex::new(
+        r"^(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})-(?P<title>[A-Za-z0-9\-]+)\.md$",
+    )?;
+    for_each_dir_entry(
+        &format!("{input_dir}/posts/"),
+        re,
+        |name: &str| -> Result<(), Box<dyn Error>> {
+            let post_html = md_to_html(format!("{input_dir}/posts/{name}"), options)?;
+            println!("{}", name);
+            Ok(())
+        },
+    )?;
+
+    args.contents = index_html;
+    let out = h.render("base", &json!(args))?;
     println!("{}", out);
     Ok(())
 }

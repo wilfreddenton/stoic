@@ -22,8 +22,8 @@ const BASE_TEMPLATE: &str = r#"
 
 const INDEX_TEMPLATE: &str = r#"
 <section>
- <h1>{{title}}</h1>
-</section
+  {{{contents}}}
+</section>
 "#;
 
 const PAGE_TEMPLATE: &str = r#"
