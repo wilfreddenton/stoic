@@ -1,0 +1,11 @@
+{{> nav}}
+<section>
+  <ul id="posts-list">
+    {{#each posts}}
+    <li class="posts-list-item">
+      <div class="posts-list-item-title">{{this.title}}</div>
+      <div class="posts-list-item-time">{{this.created_at}}</div>
+    </li>
+    {{/each}}
+  </ul>
+</section>
