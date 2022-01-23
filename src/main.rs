@@ -7,6 +7,8 @@ use std::error::Error;
 use std::fs;
 use std::fs::File;
 use std::io::prelude::*;
+use strum::IntoEnumIterator;
+use strum_macros::{Display, EnumIter};
 
 #[derive(Parser)]
 #[clap(version, about)]
@@ -21,7 +23,10 @@ enum Command {
         /// directory name
         name: String,
     },
-    Build,
+    Build {
+        input_dir: String,
+        output_dir: String,
+    },
 }
 
 const CSS_STR: &str = r#"
@@ -133,6 +138,30 @@ const NAV_TEMPLATE: &str = r#"
 </nav>
 "#;
 
+#[derive(EnumIter, Display)]
+#[strum(serialize_all = "lowercase")]
+enum TemplateName {
+    Base,
+    Index,
+    Page,
+    Posts,
+    Post,
+    Nav,
+}
+
+impl TemplateName {
+    fn template_str(&self) -> &str {
+        match self {
+            TemplateName::Base => BASE_TEMPLATE,
+            TemplateName::Index => INDEX_TEMPLATE,
+            TemplateName::Page => PAGE_TEMPLATE,
+            TemplateName::Posts => POSTS_TEMPLATE,
+            TemplateName::Post => POST_TEMPLATE,
+            TemplateName::Nav => NAV_TEMPLATE,
+        }
+    }
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "lowercase")]
 enum PageType {
@@ -177,11 +206,11 @@ fn run_new(name: String) -> Result<(), Box<dyn Error>> {
     fs::create_dir(format!("{name}/assets"))?;
     create_file(
         format!("{name}/assets/style.css"),
-        format!("{}", CSS_STR.to_string().trim()),
+        format!("{}", CSS_STR.to_string().trim_start()),
     )?;
     create_file(
         format!("{name}/assets/script.js"),
-        format!("{}", JS_STR.to_string().trim()),
+        format!("{}", JS_STR.to_string().trim_start()),
     )?;
 
     fs::create_dir(format!("{name}/posts"))?;
@@ -195,35 +224,17 @@ fn run_new(name: String) -> Result<(), Box<dyn Error>> {
     create_file(format!("{name}/pages/about.md"), "# About\n".to_string())?;
 
     fs::create_dir(format!("{name}/templates"))?;
-    create_file(
-        format!("{name}/templates/base.hbs"),
-        format!("{}", BASE_TEMPLATE.trim_start()),
-    )?;
-    create_file(
-        format!("{name}/templates/index.hbs"),
-        format!("{}", INDEX_TEMPLATE.trim_start()),
-    )?;
-    create_file(
-        format!("{name}/templates/page.hbs"),
-        format!("{}", PAGE_TEMPLATE.trim_start()),
-    )?;
-    create_file(
-        format!("{name}/templates/posts.hbs"),
-        format!("{}", POSTS_TEMPLATE.trim_start()),
-    )?;
-    create_file(
-        format!("{name}/templates/post.hbs"),
-        format!("{}", POST_TEMPLATE.trim_start()),
-    )?;
-    create_file(
-        format!("{name}/templates/nav.hbs"),
-        format!("{}", NAV_TEMPLATE.trim_start()),
-    )?;
+    for template_name in TemplateName::iter() {
+        create_file(
+            format!("{name}/templates/{template_name}.hbs"),
+            format!("{}", template_name.template_str().trim_start()),
+        )?;
+    }
 
     Ok(())
 }
 
-fn run_build() -> Result<(), Box<dyn Error>> {
+fn run_build(input_dir: String, output_dir: String) -> Result<(), Box<dyn Error>> {
     let mut h = Handlebars::new();
     let args = &json!(TemplateArgs {
         title: "test".to_string(),
@@ -239,12 +250,10 @@ fn run_build() -> Result<(), Box<dyn Error>> {
             content: "foobar".to_string(),
         }],
     });
-    h.register_template_string("base", BASE_TEMPLATE.to_string().trim())?;
-    h.register_template_string("index", INDEX_TEMPLATE.to_string().trim_start())?;
-    h.register_template_string("page", PAGE_TEMPLATE.to_string().trim_start())?;
-    h.register_template_string("posts", POSTS_TEMPLATE.to_string().trim_start())?;
-    h.register_template_string("post", POST_TEMPLATE.to_string().trim_start())?;
-    h.register_template_string("nav", NAV_TEMPLATE.to_string().trim_start())?;
+    for name in TemplateName::iter() {
+        let template_str = fs::read_to_string(format!("{input_dir}/templates/{name}.hbs"))?;
+        h.register_template_string(&name.to_string(), template_str)?;
+    }
     let out = h.render("base", args)?;
     println!("{}", out);
     Ok(())
@@ -254,6 +263,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     match args.command {
         Command::New { name } => run_new(name),
-        Command::Build => run_build(),
+        Command::Build {
+            input_dir,
+            output_dir,
+        } => run_build(input_dir, output_dir),
     }
 }
