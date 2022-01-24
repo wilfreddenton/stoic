@@ -10,6 +10,7 @@ use serde::Serialize;
 use serde_json::json;
 use std::error::Error;
 use std::fs;
+use std::path::Path;
 use strum::IntoEnumIterator;
 
 #[derive(Serialize)]
@@ -50,34 +51,38 @@ struct PostArgs<'a> {
     contents: &'a str,
 }
 
-pub fn run_new(name: String) -> Result<(), Box<dyn Error>> {
-    fs::create_dir(&name)?;
-    create_file(format!("{name}/index.md"), format!("# {name}\n"))?;
+pub fn run_new(path: String) -> Result<(), Box<dyn Error>> {
+    let name = Path::new(&path)
+        .file_stem()
+        .expect("Invalid input")
+        .to_string_lossy();
+    fs::create_dir(&path)?;
+    create_file(format!("{path}/index.md"), format!("# {name}\n"))?;
 
-    fs::create_dir(format!("{name}/assets"))?;
+    fs::create_dir(format!("{path}/assets"))?;
     create_file(
-        format!("{name}/assets/style.css"),
+        format!("{path}/assets/style.css"),
         format!("{}", CSS_STR.to_string().trim_start()),
     )?;
     create_file(
-        format!("{name}/assets/script.js"),
+        format!("{path}/assets/script.js"),
         format!("{}", JS_STR.to_string().trim_start()),
     )?;
 
-    fs::create_dir(format!("{name}/posts"))?;
+    fs::create_dir(format!("{path}/posts"))?;
     let date = Utc::now().format("%Y-%m-%d");
     create_file(
-        format!("{name}/posts/{date}-hello-world.md"),
+        format!("{path}/posts/{date}-hello-world.md"),
         "# Hello, World!\n".to_string(),
     )?;
 
-    fs::create_dir(format!("{name}/pages"))?;
-    create_file(format!("{name}/pages/about.md"), "# About\n".to_string())?;
+    fs::create_dir(format!("{path}/pages"))?;
+    create_file(format!("{path}/pages/about.md"), "# About\n".to_string())?;
 
-    fs::create_dir(format!("{name}/templates"))?;
+    fs::create_dir(format!("{path}/templates"))?;
     for template_name in TemplateName::iter() {
         create_file(
-            format!("{name}/templates/{template_name}.hbs"),
+            format!("{path}/templates/{template_name}.hbs"),
             format!("{}", template_name.template_str().trim_start()),
         )?;
     }
