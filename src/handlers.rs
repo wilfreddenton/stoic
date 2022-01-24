@@ -157,7 +157,7 @@ pub fn run_build(input_dir: String, output_dir: String) -> Result<(), Box<dyn Er
                 &json!(PageArgs {
                     path: &[Breadcrumb {
                         name: &title,
-                        link: ""
+                        link: &name
                     }],
                     title: &title,
                     contents: &contents
@@ -173,7 +173,7 @@ pub fn run_build(input_dir: String, output_dir: String) -> Result<(), Box<dyn Er
     let mut posts_args = PostsArgs {
         path: &[Breadcrumb {
             name: "Posts",
-            link: "/posts",
+            link: "posts",
         }],
         posts: Vec::new(),
     };
@@ -198,11 +198,11 @@ pub fn run_build(input_dir: String, output_dir: String) -> Result<(), Box<dyn Er
                 path: &[
                     Breadcrumb {
                         name: "Posts",
-                        link: "/posts/",
+                        link: "posts/",
                     },
                     Breadcrumb {
                         name: &created_at,
-                        link: &format!("/posts/{filename}"),
+                        link: &format!("posts/{filename}"),
                     }
                 ],
                 title: &title,

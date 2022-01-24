@@ -7,8 +7,9 @@ const BASE_TEMPLATE: &str = r#"
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>{{title}}</title>
-    <link rel="stylesheet" href="/assets/style.css">
-    <script type="text/javascript" src="/assets/script.js" async defer></script>
+    <base href="/">
+    <link rel="stylesheet" href="assets/style.css">
+    <script type="text/javascript" src="assets/script.js" async defer></script>
   </head>
   <body>
     <div id="container">
@@ -25,8 +26,8 @@ const INDEX_TEMPLATE: &str = r#"
 <section>
   {{{contents}}}
   <ul>
-    <li><a href="/about.html">About</a></li>
-    <li><a href="/posts">Blog</a></li>
+    <li><a href="about.html">About</a></li>
+    <li><a href="posts">Blog</a></li>
   </ul>
 </section>
 {{/inline}}
@@ -50,7 +51,7 @@ const POSTS_TEMPLATE: &str = r#"
   <ul id="posts-list">
     {{#each posts}}
     <li class="posts-list-item">
-      <a href="/posts/{{this.filename}}">
+      <a href="posts/{{this.filename}}">
         <div class="posts-list-item-title">{{this.title}}</div>
         <div class="posts-list-item-time">{{this.created_at}}</div>
       </a>
@@ -74,7 +75,7 @@ const POST_TEMPLATE: &str = r#"
 
 const NAV_TEMPLATE: &str = r#"
 <nav>
-  <a href="/">Home</a>
+  <a href="">Home</a>
   {{#each path}}
     <span class="breadcrumb">></span>
     <a href="{{link}}">{{name}}</a>

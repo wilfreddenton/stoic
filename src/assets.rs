@@ -29,7 +29,7 @@ pub const CSS_STR: &str = r#"
 }
 
 @media (max-width: 576px) {
-  #posts-list .posts-list-item {
+  #posts-list .posts-list-item a {
     flex-direction: column;
   }
 
