@@ -1,17 +1,15 @@
 use crate::assets::{CSS_STR, JS_STR};
 use crate::templates::TemplateName;
+use crate::utils::{copy_dir_all, create_file, for_each_dir_entry, md_to_html};
 use chrono::prelude::*;
 use handlebars::Handlebars;
 use inquire::Confirm;
-use pulldown_cmark::{html, Event, HeadingLevel, Options, Parser, Tag};
+use pulldown_cmark::Options;
 use regex::Regex;
 use serde::Serialize;
 use serde_json::json;
 use std::error::Error;
 use std::fs;
-use std::fs::File;
-use std::io::prelude::*;
-use std::path::Path;
 use strum::IntoEnumIterator;
 
 #[derive(Serialize)]
@@ -52,26 +50,6 @@ struct PostArgs<'a> {
     contents: &'a str,
 }
 
-// https://stackoverflow.com/a/65192210
-fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<(), Box<dyn Error>> {
-    fs::create_dir_all(&dst)?;
-    for entry in fs::read_dir(src)? {
-        let entry = entry?;
-        let ty = entry.file_type()?;
-        if ty.is_dir() {
-            copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
-        } else {
-            fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
-        }
-    }
-    Ok(())
-}
-fn create_file(path: String, contents: String) -> Result<(), Box<dyn Error>> {
-    let mut f = File::create(format!("{path}"))?;
-    write!(f, "{contents}")?;
-    Ok(())
-}
-
 pub fn run_new(name: String) -> Result<(), Box<dyn Error>> {
     fs::create_dir(&name)?;
     create_file(format!("{name}/index.md"), format!("# {name}\n"))?;
@@ -102,52 +80,6 @@ pub fn run_new(name: String) -> Result<(), Box<dyn Error>> {
             format!("{name}/templates/{template_name}.hbs"),
             format!("{}", template_name.template_str().trim_start()),
         )?;
-    }
-
-    Ok(())
-}
-
-fn md_to_html(path: String, options: Options) -> Result<(String, String), Box<dyn Error>> {
-    let md_str = fs::read_to_string(path)?;
-    let mut parser = Parser::new_ext(&md_str, options);
-    let mut inside_header = false;
-    let mut title = String::new();
-    for event in parser {
-        match event {
-            Event::Start(Tag::Heading(HeadingLevel::H1, _, _)) => inside_header = true,
-            Event::Text(text) => {
-                if inside_header {
-                    title = text.to_string();
-                    break;
-                }
-            }
-            _ => (),
-        };
-    }
-
-    parser = Parser::new_ext(&md_str, options);
-    let mut html_str = String::new();
-    html::push_html(&mut html_str, parser);
-    Ok((title, html_str))
-}
-
-fn for_each_dir_entry<F>(dir: &str, re: &Regex, mut f: F) -> Result<(), Box<dyn Error>>
-where
-    F: FnMut(&str) -> Result<(), Box<dyn Error>>,
-{
-    let mut entries = fs::read_dir(dir)?
-        .filter_map(|e| e.ok())
-        .collect::<Vec<_>>();
-    entries.sort_by_key(|e| e.path());
-    for entry in entries {
-        let metadata = entry.metadata()?;
-        if let Ok(name) = &entry.file_name().into_string() {
-            if metadata.is_file() && re.is_match(name) {
-                if let Err(e) = f(name) {
-                    return Err(e);
-                }
-            }
-        }
     }
 
     Ok(())
