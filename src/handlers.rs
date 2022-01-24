@@ -26,7 +26,6 @@ struct Post {
     filename: String,
     title: String,
     created_at: String,
-    contents: String,
 }
 
 #[derive(Serialize)]
@@ -36,11 +35,26 @@ struct Breadcrumb {
 }
 
 #[derive(Serialize)]
-struct TemplateArgs<'a> {
+struct IndexArgs {
+    contents: String,
+}
+
+#[derive(Serialize)]
+struct PageArgs {
     title: String,
-    page_type: PageType,
-    path: &'a [Breadcrumb],
-    posts: &'a [Post],
+    contents: String,
+}
+
+#[derive(Serialize)]
+struct PostsArgs {
+    path: Vec<Breadcrumb>,
+    posts: Vec<Post>,
+}
+
+#[derive(Serialize)]
+struct PostArgs {
+    path: Vec<Breadcrumb>,
+    title: String,
     contents: String,
 }
 
@@ -109,9 +123,9 @@ fn md_to_html(path: String, options: Options) -> Result<(String, String), Box<dy
     Ok((title, html_str))
 }
 
-fn for_each_dir_entry<F>(dir: &str, re: &Regex, f: F) -> Result<(), Box<dyn Error>>
+fn for_each_dir_entry<F>(dir: &str, re: &Regex, mut f: F) -> Result<(), Box<dyn Error>>
 where
-    F: Fn(&str) -> Result<(), Box<dyn Error>>,
+    F: FnMut(&str) -> Result<(), Box<dyn Error>>,
 {
     let mut entries = fs::read_dir(dir)?
         .filter_map(|e| e.ok())
@@ -133,21 +147,6 @@ where
 
 pub fn run_build(input_dir: String, output_dir: String) -> Result<(), Box<dyn Error>> {
     let mut h = Handlebars::new();
-    let mut args = TemplateArgs {
-        title: "test".to_string(),
-        page_type: PageType::Index,
-        path: &[Breadcrumb {
-            name: "Posts".to_string(),
-            link: "/posts".to_string(),
-        }],
-        posts: &[Post {
-            filename: "test.html".to_string(),
-            title: "Test".to_string(),
-            created_at: "Feb 02, 2022".to_string(),
-            contents: "foobar".to_string(),
-        }],
-        contents: String::new(),
-    };
 
     for name in TemplateName::iter() {
         let template_str = fs::read_to_string(format!("{input_dir}/templates/{name}.hbs"))?;
@@ -157,38 +156,46 @@ pub fn run_build(input_dir: String, output_dir: String) -> Result<(), Box<dyn Er
     let mut options = Options::empty();
     options.insert(Options::ENABLE_FOOTNOTES);
     let (index_title, index_html) = md_to_html(format!("{input_dir}/index.md"), options)?;
+    let test = &json!(IndexArgs {
+        contents: index_html,
+    });
+    let out = h.render("index", test)?;
+    println!("{}", out);
 
+    let mut dir = format!("{input_dir}/pages/");
     for_each_dir_entry(
-        &format!("{input_dir}/pages/"),
+        &dir,
         &Regex::new(r"^[A-Za-z0-9\-]+\.md$")?,
         |name: &str| -> Result<(), Box<dyn Error>> {
-            let (title, page_html) = md_to_html(format!("{input_dir}/pages/{name}"), options)?;
+            let (title, page_html) = md_to_html(format!("{dir}{name}"), options)?;
             println!("{}", page_html);
             Ok(())
         },
     )?;
 
+    dir = format!("{input_dir}/posts/");
     let re = Regex::new(
         r"^(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})-(?P<title>[A-Za-z0-9\-]+)\.md$",
     )?;
-    for_each_dir_entry(
-        &format!("{input_dir}/posts/"),
-        &re,
-        |name: &str| -> Result<(), Box<dyn Error>> {
-            let caps = re.captures(name).expect("match already performed");
-            let dt = Utc.ymd(
-                caps["year"].parse()?,
-                caps["month"].parse()?,
-                caps["month"].parse()?,
-            );
-            let (title, post_html) = md_to_html(format!("{input_dir}/posts/{name}"), options)?;
-            println!("{} {} {}", name, title, dt.format("%b %d, %Y"));
-            Ok(())
-        },
-    )?;
+    for_each_dir_entry(&dir, &re, |name: &str| -> Result<(), Box<dyn Error>> {
+        let caps = re.captures(name).expect("match already performed");
+        let dt = Utc.ymd(
+            caps["year"].parse()?,
+            caps["month"].parse()?,
+            caps["month"].parse()?,
+        );
+        let (title, contents) = md_to_html(format!("{dir}{name}"), options)?;
+        //args.posts.insert(
+        //    0,
+        //    Post {
+        //        filename: name.to_string(),
+        //        created_at: dt.format("%b %d, %Y").to_string(),
+        //        title: title,
+        //    },
+        //);
 
-    args.contents = index_html;
-    let out = h.render("base", &json!(args))?;
-    println!("{}", out);
+        Ok(())
+    })?;
+
     Ok(())
 }

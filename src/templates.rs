@@ -12,7 +12,7 @@ const BASE_TEMPLATE: &str = r#"
   </head>
   <body>
     <div id="container">
-      {{> (lookup this "page_type") }}
+      {{> filling}}
       <footer>
       </footer>
     </div>
@@ -21,19 +21,30 @@ const BASE_TEMPLATE: &str = r#"
 "#;
 
 const INDEX_TEMPLATE: &str = r#"
+{{#*inline "filling"}}
 <section>
   {{{contents}}}
+  <ul>
+    <li><a href="/about">About</a></li>
+    <li><a href="/posts">Blog</a></li>
+  </ul>
 </section>
+{{/inline}}
+{{> base}}
 "#;
 
 const PAGE_TEMPLATE: &str = r#"
+{{#*inline "filling"}}
 {{> nav}}
 <section>
   {{{contents}}}
 </section>
+{{/inline}}
+{{> base}}
 "#;
 
 const POSTS_TEMPLATE: &str = r#"
+{{#*inline "filling"}}
 {{> nav}}
 <section>
   <ul id="posts-list">
@@ -45,13 +56,18 @@ const POSTS_TEMPLATE: &str = r#"
     {{/each}}
   </ul>
 </section>
+{{/inline}}
+{{> base}}
 "#;
 
 const POST_TEMPLATE: &str = r#"
+{{#*inline "filling"}}
 {{> nav}}
 <section>
   {{{contents}}}
 </section>
+{{/inline}}
+{{> base}}
 "#;
 
 const NAV_TEMPLATE: &str = r#"
