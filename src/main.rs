@@ -3,7 +3,7 @@ pub mod handlers;
 pub mod templates;
 pub mod utils;
 
-use crate::handlers::{run_build, run_new};
+use crate::handlers::{run_build, run_new, run_watch};
 use clap::{Parser, Subcommand};
 use std::error::Error;
 
@@ -24,6 +24,10 @@ enum Command {
         input_dir: String,
         output_dir: String,
     },
+    Watch {
+        input_dir: String,
+        output_dir: String,
+    },
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -33,6 +37,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         Command::Build {
             input_dir,
             output_dir,
-        } => run_build(input_dir, output_dir),
+        } => run_build(&input_dir, &output_dir, true),
+        Command::Watch {
+            input_dir,
+            output_dir,
+        } => run_watch(input_dir, output_dir),
     }
 }
