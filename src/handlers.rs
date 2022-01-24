@@ -245,14 +245,14 @@ pub fn run_watch(input_dir: String, output_dir: String) -> Result<(), Box<dyn Er
     watcher.watch(&input_dir, RecursiveMode::Recursive).unwrap();
 
     run_build(&input_dir, &output_dir, true)?;
-    println!("build differently");
+    println!("built differently");
     loop {
         let event = rx.recv()?;
         match event {
             DebouncedEvent::NoticeWrite(_) | DebouncedEvent::NoticeRemove(_) => continue,
             _ => {
                 run_build(&input_dir, &output_dir, false)?;
-                println!("build differently");
+                println!("built differently");
             }
         }
     }
