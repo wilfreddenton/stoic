@@ -2,6 +2,7 @@ use crate::assets::{CSS_STR, JS_STR};
 use crate::templates::TemplateName;
 use chrono::prelude::*;
 use handlebars::Handlebars;
+use inquire::Confirm;
 use pulldown_cmark::{html, Event, HeadingLevel, Options, Parser, Tag};
 use regex::Regex;
 use serde::Serialize;
@@ -29,33 +30,34 @@ struct Post {
 }
 
 #[derive(Serialize)]
-struct Breadcrumb {
-    name: String,
-    link: String,
+struct Breadcrumb<'a> {
+    name: &'a str,
+    link: &'a str,
 }
 
 #[derive(Serialize)]
-struct IndexArgs {
-    contents: String,
+struct IndexArgs<'a> {
+    contents: &'a str,
 }
 
 #[derive(Serialize)]
-struct PageArgs {
-    title: String,
-    contents: String,
+struct PageArgs<'a> {
+    path: &'a [Breadcrumb<'a>],
+    title: &'a str,
+    contents: &'a str,
 }
 
 #[derive(Serialize)]
-struct PostsArgs {
-    path: Vec<Breadcrumb>,
+struct PostsArgs<'a> {
+    path: &'a [Breadcrumb<'a>],
     posts: Vec<Post>,
 }
 
 #[derive(Serialize)]
-struct PostArgs {
-    path: Vec<Breadcrumb>,
-    title: String,
-    contents: String,
+struct PostArgs<'a> {
+    path: &'a [Breadcrumb<'a>],
+    title: &'a str,
+    contents: &'a str,
 }
 
 fn create_file(path: String, contents: String) -> Result<(), Box<dyn Error>> {
@@ -132,9 +134,9 @@ where
         .collect::<Vec<_>>();
     entries.sort_by_key(|e| e.path());
     for entry in entries {
-        let ft = entry.file_type()?;
+        let metadata = entry.metadata()?;
         if let Ok(name) = &entry.file_name().into_string() {
-            if ft.is_file() && re.is_match(name) {
+            if metadata.is_file() && re.is_match(name) {
                 if let Err(e) = f(name) {
                     return Err(e);
                 }
@@ -146,33 +148,84 @@ where
 }
 
 pub fn run_build(input_dir: String, output_dir: String) -> Result<(), Box<dyn Error>> {
-    let mut h = Handlebars::new();
+    if let Ok(metadata) = fs::metadata(&output_dir) {
+        if metadata.is_file() {
+            return Err(format!("{output_dir} is already a file").into());
+        }
 
+        let ans = Confirm::new(&format!("{output_dir} already exists. Continue?"))
+            .with_default(false)
+            .with_help_message("All contents will be overwritten except .git/")
+            .prompt()?;
+        if !ans {
+            return Ok(());
+        }
+
+        let entries = fs::read_dir(output_dir)?;
+        for entry in entries {
+            let entry = entry?;
+            let metadata = entry.metadata()?;
+            if metadata.is_file() {
+                fs::remove_file(entry.path())?;
+            } else {
+                if let Ok(name) = entry.file_name().into_string() {
+                    if name == ".git" {
+                        continue;
+                    }
+                }
+                fs::remove_dir_all(entry.path())?;
+            }
+        }
+    } else {
+        fs::create_dir(output_dir)?;
+    }
+
+    let mut h = Handlebars::new();
     for name in TemplateName::iter() {
-        let template_str = fs::read_to_string(format!("{input_dir}/templates/{name}.hbs"))?;
-        h.register_template_string(&name.to_string(), template_str)?;
+        h.register_template_string(
+            &name.to_string(),
+            fs::read_to_string(format!("{input_dir}/templates/{name}.hbs"))?,
+        )?;
     }
 
     let mut options = Options::empty();
     options.insert(Options::ENABLE_FOOTNOTES);
-    let (index_title, index_html) = md_to_html(format!("{input_dir}/index.md"), options)?;
+    let (_, contents) = md_to_html(format!("{input_dir}/index.md"), options)?;
     let test = &json!(IndexArgs {
-        contents: index_html,
+        contents: &contents,
     });
     let out = h.render("index", test)?;
-    println!("{}", out);
+    //println!("{}", out);
 
     let mut dir = format!("{input_dir}/pages/");
     for_each_dir_entry(
         &dir,
         &Regex::new(r"^[A-Za-z0-9\-]+\.md$")?,
         |name: &str| -> Result<(), Box<dyn Error>> {
-            let (title, page_html) = md_to_html(format!("{dir}{name}"), options)?;
-            println!("{}", page_html);
+            let (title, contents) = md_to_html(format!("{dir}{name}"), options)?;
+            let out = h.render(
+                "page",
+                &json!(PageArgs {
+                    path: &[Breadcrumb {
+                        name: &title,
+                        link: ""
+                    }],
+                    title: &title,
+                    contents: &contents
+                }),
+            )?;
+            //println!("{}", out);
             Ok(())
         },
     )?;
 
+    let mut posts_args = PostsArgs {
+        path: &[Breadcrumb {
+            name: "Posts",
+            link: "/posts",
+        }],
+        posts: Vec::new(),
+    };
     dir = format!("{input_dir}/posts/");
     let re = Regex::new(
         r"^(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})-(?P<title>[A-Za-z0-9\-]+)\.md$",
@@ -185,17 +238,40 @@ pub fn run_build(input_dir: String, output_dir: String) -> Result<(), Box<dyn Er
             caps["month"].parse()?,
         );
         let (title, contents) = md_to_html(format!("{dir}{name}"), options)?;
-        //args.posts.insert(
-        //    0,
-        //    Post {
-        //        filename: name.to_string(),
-        //        created_at: dt.format("%b %d, %Y").to_string(),
-        //        title: title,
-        //    },
-        //);
+        let filename = name.replace(".md", ".html");
+        let created_at = dt.format("%b %d, %Y").to_string();
+        let out = h.render(
+            "post",
+            &json!(PostArgs {
+                path: &[
+                    Breadcrumb {
+                        name: "Posts",
+                        link: "/posts/",
+                    },
+                    Breadcrumb {
+                        name: &created_at,
+                        link: &format!("/posts/{filename}"),
+                    }
+                ],
+                title: &title,
+                contents: &contents,
+            }),
+        )?;
+        //println!("{}", out);
+        posts_args.posts.insert(
+            0,
+            Post {
+                filename: name.to_string(),
+                created_at: created_at,
+                title: title,
+            },
+        );
 
         Ok(())
     })?;
+
+    let out = h.render("posts", &json!(posts_args))?;
+    //println!("{}", out);
 
     Ok(())
 }
