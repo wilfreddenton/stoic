@@ -11,16 +11,8 @@ use std::error::Error;
 use std::fs;
 use std::fs::File;
 use std::io::prelude::*;
+use std::path::Path;
 use strum::IntoEnumIterator;
-
-#[derive(Serialize)]
-#[serde(rename_all = "lowercase")]
-enum PageType {
-    Index,
-    Page,
-    Posts,
-    Post,
-}
 
 #[derive(Serialize)]
 struct Post {
@@ -60,6 +52,20 @@ struct PostArgs<'a> {
     contents: &'a str,
 }
 
+// https://stackoverflow.com/a/65192210
+fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<(), Box<dyn Error>> {
+    fs::create_dir_all(&dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        if ty.is_dir() {
+            copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        } else {
+            fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        }
+    }
+    Ok(())
+}
 fn create_file(path: String, contents: String) -> Result<(), Box<dyn Error>> {
     let mut f = File::create(format!("{path}"))?;
     write!(f, "{contents}")?;
@@ -161,7 +167,7 @@ pub fn run_build(input_dir: String, output_dir: String) -> Result<(), Box<dyn Er
             return Ok(());
         }
 
-        let entries = fs::read_dir(output_dir)?;
+        let entries = fs::read_dir(&output_dir)?;
         for entry in entries {
             let entry = entry?;
             let metadata = entry.metadata()?;
@@ -177,8 +183,14 @@ pub fn run_build(input_dir: String, output_dir: String) -> Result<(), Box<dyn Er
             }
         }
     } else {
-        fs::create_dir(output_dir)?;
+        fs::create_dir(&output_dir)?;
     }
+
+    fs::create_dir(format!("{output_dir}/assets/"))?;
+    copy_dir_all(
+        format!("{input_dir}/assets"),
+        format!("{output_dir}/assets"),
+    )?;
 
     let mut h = Handlebars::new();
     for name in TemplateName::iter() {
@@ -195,7 +207,7 @@ pub fn run_build(input_dir: String, output_dir: String) -> Result<(), Box<dyn Er
         contents: &contents,
     });
     let out = h.render("index", test)?;
-    //println!("{}", out);
+    create_file(format!("{output_dir}/index.html"), out)?;
 
     let mut dir = format!("{input_dir}/pages/");
     for_each_dir_entry(
@@ -214,7 +226,9 @@ pub fn run_build(input_dir: String, output_dir: String) -> Result<(), Box<dyn Er
                     contents: &contents
                 }),
             )?;
-            //println!("{}", out);
+            let out_name = name.replace(".md", ".html");
+            create_file(format!("{output_dir}/{out_name}"), out)?;
+
             Ok(())
         },
     )?;
@@ -230,6 +244,7 @@ pub fn run_build(input_dir: String, output_dir: String) -> Result<(), Box<dyn Er
     let re = Regex::new(
         r"^(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})-(?P<title>[A-Za-z0-9\-]+)\.md$",
     )?;
+    fs::create_dir(format!("{output_dir}/posts/"))?;
     for_each_dir_entry(&dir, &re, |name: &str| -> Result<(), Box<dyn Error>> {
         let caps = re.captures(name).expect("match already performed");
         let dt = Utc.ymd(
@@ -257,11 +272,13 @@ pub fn run_build(input_dir: String, output_dir: String) -> Result<(), Box<dyn Er
                 contents: &contents,
             }),
         )?;
-        //println!("{}", out);
+        let out_name = name.replace(".md", ".html");
+        create_file(format!("{output_dir}/posts/{out_name}"), out)?;
+
         posts_args.posts.insert(
             0,
             Post {
-                filename: name.to_string(),
+                filename: out_name,
                 created_at: created_at,
                 title: title,
             },
@@ -271,7 +288,7 @@ pub fn run_build(input_dir: String, output_dir: String) -> Result<(), Box<dyn Er
     })?;
 
     let out = h.render("posts", &json!(posts_args))?;
-    //println!("{}", out);
+    create_file(format!("{output_dir}/posts/index.html"), out)?;
 
     Ok(())
 }

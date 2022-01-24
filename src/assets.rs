@@ -15,7 +15,7 @@ pub const CSS_STR: &str = r#"
   list-style-type: none;
 }
 
-#posts-list .posts-list-item {
+#posts-list .posts-list-item a {
   display: flex;
 }
 

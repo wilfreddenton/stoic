@@ -25,7 +25,7 @@ const INDEX_TEMPLATE: &str = r#"
 <section>
   {{{contents}}}
   <ul>
-    <li><a href="/about">About</a></li>
+    <li><a href="/about.html">About</a></li>
     <li><a href="/posts">Blog</a></li>
   </ul>
 </section>
@@ -50,8 +50,10 @@ const POSTS_TEMPLATE: &str = r#"
   <ul id="posts-list">
     {{#each posts}}
     <li class="posts-list-item">
-      <div class="posts-list-item-title">{{this.title}}</div>
-      <div class="posts-list-item-time">{{this.created_at}}</div>
+      <a href="/posts/{{this.filename}}">
+        <div class="posts-list-item-title">{{this.title}}</div>
+        <div class="posts-list-item-time">{{this.created_at}}</div>
+      </a>
     </li>
     {{/each}}
   </ul>
