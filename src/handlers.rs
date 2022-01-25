@@ -45,6 +45,7 @@ struct PageArgs<'a> {
 #[derive(Serialize)]
 struct PostsArgs<'a> {
     path: &'a [Breadcrumb<'a>],
+    title: &'a str,
     posts: Vec<Post>,
 }
 
@@ -117,11 +118,17 @@ pub fn run_build(
         let entries = fs::read_dir(&output_dir)?;
         for entry in entries {
             let entry = entry?;
+            let name_opt = entry.file_name().into_string();
             let metadata = entry.metadata()?;
             if metadata.is_file() {
+                if let Ok(name) = name_opt {
+                    if name == "CNAME" {
+                        continue;
+                    }
+                }
                 fs::remove_file(entry.path())?;
             } else {
-                if let Ok(name) = entry.file_name().into_string() {
+                if let Ok(name) = name_opt {
                     if name == ".git" {
                         continue;
                     }
@@ -188,6 +195,7 @@ pub fn run_build(
             name: "Posts",
             link: "posts",
         }],
+        title: "Posts",
         posts: Vec::new(),
     };
     dir = format!("{input_dir}/posts/");
