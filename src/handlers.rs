@@ -161,18 +161,18 @@ pub fn run_build(
         &Regex::new(r"^[A-Za-z0-9\-]+\.md$")?,
         |name: &str| -> Result<(), Box<dyn Error>> {
             let (title, contents) = md_to_html(format!("{dir}{name}"), options)?;
+            let out_name = name.replace(".md", ".html");
             let out = h.render(
                 "page",
                 &json!(PageArgs {
                     path: &[Breadcrumb {
                         name: &title,
-                        link: &name
+                        link: &out_name,
                     }],
                     title: &title,
                     contents: &contents
                 }),
             )?;
-            let out_name = name.replace(".md", ".html");
             create_file(format!("{output_dir}/{out_name}"), out)?;
 
             Ok(())
@@ -196,7 +196,7 @@ pub fn run_build(
         let dt = Utc.ymd(
             caps["year"].parse()?,
             caps["month"].parse()?,
-            caps["month"].parse()?,
+            caps["day"].parse()?,
         );
         let (title, contents) = md_to_html(format!("{dir}{name}"), options)?;
         let filename = name.replace(".md", ".html");

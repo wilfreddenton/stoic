@@ -40,5 +40,5 @@ pub const CSS_STR: &str = r#"
 "#;
 
 pub const JS_STR: &str = r#"
-window.addEventListener('DOMContentLoaded', () => {});
+console.log("Hello, World!")
 "#;
