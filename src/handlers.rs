@@ -31,6 +31,7 @@ struct Breadcrumb<'a> {
 
 #[derive(Serialize)]
 struct IndexArgs<'a> {
+    title: &'a str,
     contents: &'a str,
 }
 
@@ -148,8 +149,11 @@ pub fn run_build(
 
     let mut options = Options::empty();
     options.insert(Options::ENABLE_FOOTNOTES);
-    let (_, contents) = md_to_html(format!("{input_dir}/index.md"), options)?;
+    options.insert(Options::ENABLE_HEADING_ATTRIBUTES);
+
+    let (title, contents) = md_to_html(format!("{input_dir}/index.md"), options)?;
     let test = &json!(IndexArgs {
+        title: &title,
         contents: &contents,
     });
     let out = h.render("index", test)?;
@@ -241,7 +245,7 @@ pub fn run_build(
 
 pub fn run_watch(input_dir: String, output_dir: String) -> Result<(), Box<dyn Error>> {
     let (tx, rx) = channel();
-    let mut watcher = watcher(tx, Duration::from_secs(1)).unwrap();
+    let mut watcher = watcher(tx, Duration::from_secs(0)).unwrap();
     watcher.watch(&input_dir, RecursiveMode::Recursive).unwrap();
 
     run_build(&input_dir, &output_dir, true)?;
