@@ -1,5 +1,7 @@
 # patina
 
+is a simple static blog generator created to learn about Rust and its library ecosystem.
+
 ## Installation
 
 ```
