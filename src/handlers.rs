@@ -200,16 +200,12 @@ pub fn run_build(
     };
     dir = format!("{input_dir}/posts/");
     let re = Regex::new(
-        r"^(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})-(?P<title>[A-Za-z0-9\-]+)\.md$",
+        r"^(?P<date>\d{4}-\d{2}-\d{2})-(?P<title>[A-Za-z0-9\-]+)\.md$",
     )?;
     fs::create_dir(format!("{output_dir}/posts/"))?;
     for_each_dir_entry(&dir, &re, |name: &str| -> Result<(), Box<dyn Error>> {
         let caps = re.captures(name).expect("match already performed");
-        let dt = Utc.ymd(
-            caps["year"].parse()?,
-            caps["month"].parse()?,
-            caps["day"].parse()?,
-        );
+        let dt = NaiveDate::parse_from_str(&caps["date"].to_string(), "%Y-%m-%d")?;
         let (title, contents) = md_to_html(format!("{dir}{name}"), options)?;
         let filename = name.replace(".md", ".html");
         let created_at = dt.format("%b %d, %Y").to_string();
@@ -237,8 +233,8 @@ pub fn run_build(
             0,
             Post {
                 filename: out_name,
-                created_at: created_at,
-                title: title,
+                created_at,
+                title,
             },
         );
 
