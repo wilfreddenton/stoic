@@ -4,17 +4,17 @@ pub mod templates;
 pub mod utils;
 
 use crate::handlers::{run_build, run_new, run_watch};
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use std::error::Error;
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 #[clap(version, about)]
 struct Args {
-    #[clap(subcommand)]
+    #[command(subcommand)]
     command: Command,
 }
 
-#[derive(Subcommand)]
+#[derive(clap::Subcommand)]
 enum Command {
     New {
         /// directory name
