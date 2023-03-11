@@ -4,7 +4,6 @@ use crate::utils::{copy_dir_all, create_file, for_each_dir_entry, md_to_html};
 use chrono::prelude::*;
 use handlebars::Handlebars;
 use inquire::Confirm;
-use notify::{watcher, DebouncedEvent, RecursiveMode, Watcher};
 use pulldown_cmark::Options;
 use regex::Regex;
 use serde::Serialize;
@@ -12,8 +11,6 @@ use serde_json::json;
 use std::error::Error;
 use std::fs;
 use std::path::Path;
-use std::sync::mpsc::channel;
-use std::time::Duration;
 use strum::IntoEnumIterator;
 
 #[derive(Serialize)]
@@ -245,23 +242,4 @@ pub fn run_build(
     create_file(format!("{output_dir}/posts/index.html"), out)?;
 
     Ok(())
-}
-
-pub fn run_watch(input_dir: String, output_dir: String) -> Result<(), Box<dyn Error>> {
-    let (tx, rx) = channel();
-    let mut watcher = watcher(tx, Duration::from_secs(0)).unwrap();
-    watcher.watch(&input_dir, RecursiveMode::Recursive).unwrap();
-
-    run_build(&input_dir, &output_dir, true)?;
-    println!("built differently");
-    loop {
-        let event = rx.recv()?;
-        match event {
-            DebouncedEvent::NoticeWrite(_) | DebouncedEvent::NoticeRemove(_) => continue,
-            _ => {
-                run_build(&input_dir, &output_dir, false)?;
-                println!("built differently");
-            }
-        }
-    }
 }

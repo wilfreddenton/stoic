@@ -3,7 +3,7 @@ pub mod handlers;
 pub mod templates;
 pub mod utils;
 
-use crate::handlers::{run_build, run_new, run_watch};
+use crate::handlers::{run_build, run_new};
 use clap::Parser;
 use std::error::Error;
 
@@ -38,9 +38,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             input_dir,
             output_dir,
         } => run_build(&input_dir, &output_dir, true),
-        Command::Watch {
-            input_dir,
-            output_dir,
-        } => run_watch(input_dir, output_dir),
+        Command::Watch {input_dir, output_dir} => Ok(()),
     }
 }
