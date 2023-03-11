@@ -48,6 +48,7 @@ pub fn md_to_html(path: String, options: Options) -> Result<(String, String), Bo
     parser = Parser::new_ext(&md_str, options);
     let mut html_str = String::new();
     html::push_html(&mut html_str, parser);
+    println!("{}", html_str);
     Ok((title, html_str))
 }
 

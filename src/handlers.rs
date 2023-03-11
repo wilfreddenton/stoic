@@ -223,6 +223,7 @@ pub fn run_build(
                 contents: &contents,
             }),
         )?;
+        println!("{out}");
         let out_name = name.replace(".md", ".html");
         create_file(format!("{output_dir}/posts/{out_name}"), out)?;
 

@@ -7,7 +7,7 @@ description = "a simple static blog generator"
 [dependencies]
 chrono = "0.4"
 clap = { version = "4.1", features = ["derive"] }
-handlebars = "4.3"
+handlebars = "=4.3.0"
 inquire = "0.6"
 pulldown-cmark = { version = "0.9", default-features = false }
 regex = "1.7"
