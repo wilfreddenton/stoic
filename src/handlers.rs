@@ -147,7 +147,11 @@ pub fn run_build(
     for name in TemplateName::iter() {
         h.register_template_string(
             &name.to_string(),
-            fs::read_to_string(format!("{input_dir}/templates/{name}.hbs"))?,
+            fs::read_to_string(format!("{input_dir}/templates/{name}.hbs"))?
+                .split("\n")
+                .map(|l| l.trim())
+                .collect::<Vec<&str>>()
+                .join("\n"),
         )?;
     }
 
@@ -196,9 +200,7 @@ pub fn run_build(
         posts: Vec::new(),
     };
     dir = format!("{input_dir}/posts/");
-    let re = Regex::new(
-        r"^(?P<date>\d{4}-\d{2}-\d{2})-(?P<title>[A-Za-z0-9\-]+)\.md$",
-    )?;
+    let re = Regex::new(r"^(?P<date>\d{4}-\d{2}-\d{2})-(?P<title>[A-Za-z0-9\-]+)\.md$")?;
     fs::create_dir(format!("{output_dir}/posts/"))?;
     for_each_dir_entry(&dir, &re, |name: &str| -> Result<(), Box<dyn Error>> {
         let caps = re.captures(name).expect("match already performed");
