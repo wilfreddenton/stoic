@@ -128,6 +128,7 @@ pub fn run_build(
     output_dir: &str,
     should_confirm: bool,
 ) -> Result<(), Box<dyn Error>> {
+    let mut start = Utc::now();
     if let Ok(metadata) = fs::metadata(&output_dir) {
         if metadata.is_file() {
             return Err(format!("{output_dir} is already a file").into());
@@ -141,6 +142,8 @@ pub fn run_build(
             if !ans {
                 return Ok(());
             }
+            
+            start = Utc::now();
         }
 
         let entries = fs::read_dir(&output_dir)?;
@@ -239,36 +242,31 @@ pub fn run_build(
         .filter_map(|(name, md_str)| {
             re.captures(name)
                 .map(|caps| caps["date"].to_string())
-                .map(|d| (d, name, md_str))
-        })
-        .filter_map(|(date, name, md_str)| {
-            NaiveDate::parse_from_str(&date, "%Y-%m-%d")
-                .ok()
-                .map(|d| (d, name, md_str))
-        })
-        .filter_map(|(dt, name, md_str)| {
-            let (title, contents) = md_to_html(md_str.to_owned(), new_options());
-            let filename = name.replace(".md", ".html");
-            let created_at = dt.format("%b %d, %Y").to_string();
-            h.render(
-                "post",
-                &json!(PostArgs {
-                    path: &[
-                        Breadcrumb {
-                            name: "Posts",
-                            link: "posts/",
-                        },
-                        Breadcrumb {
-                            name: &created_at,
-                            link: &format!("posts/{filename}"),
-                        }
-                    ],
-                    title: &title,
-                    contents: &contents,
-                }),
-            )
-            .ok()
-            .map(|o| (title, filename, created_at, o))
+                .map(|d| NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok()).flatten()
+                .map(|dt| {
+                    let (title, contents) = md_to_html(md_str.to_owned(), new_options());
+                    let filename = name.replace(".md", ".html");
+                    let created_at = dt.format("%b %d, %Y").to_string();
+                    h.render(
+                        "post",
+                        &json!(PostArgs {
+                            path: &[
+                                Breadcrumb {
+                                    name: "Posts",
+                                    link: "posts/",
+                                },
+                                Breadcrumb {
+                                    name: &created_at,
+                                    link: &format!("posts/{filename}"),
+                                }
+                            ],
+                            title: &title,
+                            contents: &contents,
+                        }),
+                    )
+                    .ok()
+                    .map(|o| (title, filename, created_at, o))
+                }).flatten()
         })
         .collect::<Vec<_>>();
 
@@ -287,6 +285,8 @@ pub fn run_build(
 
     let out = h.render("posts", &json!(posts_args))?;
     create_file(format!("{output_dir}/posts/index.html"), out)?;
+
+    println!("built in {} ms", (Utc::now() - start).num_milliseconds());
 
     Ok(())
 }
