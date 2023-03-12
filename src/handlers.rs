@@ -62,27 +62,13 @@ fn new_options() -> Options {
 
 pub fn read_files(dir: ReadDir, dir_name: &str, re: &Regex) -> Vec<(String, String)> {
     dir.filter_map(|e| e.ok())
-        .filter_map(|e| {
-            let metadata = e.metadata();
-            match metadata {
-                Ok(m) => Some((m, e)),
-                _ => None,
-            }
-        })
-        .filter_map(|(m, e)| {
-            let name = e.file_name().into_string();
-            match name {
-                Ok(n) => Some((n, m)),
-                _ => None,
-            }
-        })
+        .filter_map(|e| e.metadata().ok().map(|m| (m, e)))
+        .filter_map(|(m, e)| e.file_name().into_string().ok().map(|n| (n, m)))
         .filter(|(n, m)| m.is_file() && re.is_match(n))
         .filter_map(|(n, _)| {
-            let md_str = fs::read_to_string(format!("{dir_name}{n}"));
-            match md_str {
-                Ok(s) => Some((n, s)),
-                _ => None,
-            }
+            fs::read_to_string(format!("{dir_name}{n}"))
+                .ok()
+                .map(|s| (n, s))
         })
         .collect::<Vec<_>>()
 }
@@ -206,7 +192,7 @@ pub fn run_build(
         .filter_map(|(name, md_str)| {
             let (title, contents) = md_to_html(md_str.to_owned(), new_options());
             let out_name = name.replace(".md", ".html");
-            let out = h.render(
+            h.render(
                 "page",
                 &json!(PageArgs {
                     path: &[Breadcrumb {
@@ -216,11 +202,9 @@ pub fn run_build(
                     title: &title,
                     contents: &contents
                 }),
-            );
-            match out {
-                Ok(o) => Some((out_name, o)),
-                _ => None,
-            }
+            )
+            .ok()
+            .map(|o| (out_name, o))
         })
         .collect::<Vec<(String, String)>>();
     for (out_name, out) in page_entries {
@@ -242,24 +226,20 @@ pub fn run_build(
     let post_entries = read_files(r_dir, &dir, &re)
         .iter()
         .filter_map(|(name, md_str)| {
-            let date = re.captures(name).map(|caps| caps["date"].to_string());
-            match date {
-                Some(d) => Some((d, name, md_str)),
-                _ => None,
-            }
+            re.captures(name)
+                .map(|caps| caps["date"].to_string())
+                .map(|d| (d, name, md_str))
         })
         .filter_map(|(date, name, md_str)| {
-            let dt = NaiveDate::parse_from_str(&date, "%Y-%m-%d");
-            match dt {
-                Ok(d) => Some((d, name, md_str)),
-                _ => None,
-            }
+            NaiveDate::parse_from_str(&date, "%Y-%m-%d")
+                .ok()
+                .map(|d| (d, name, md_str))
         })
         .filter_map(|(dt, name, md_str)| {
             let (title, contents) = md_to_html(md_str.to_owned(), new_options());
             let filename = name.replace(".md", ".html");
             let created_at = dt.format("%b %d, %Y").to_string();
-            let out = h.render(
+            h.render(
                 "post",
                 &json!(PostArgs {
                     path: &[
@@ -275,11 +255,7 @@ pub fn run_build(
                     title: &title,
                     contents: &contents,
                 }),
-            );
-            match out {
-                Ok(o) => Some((title, filename, created_at, o)),
-                _ => None,
-            }
+            ).ok().map(|o| (title, filename, created_at, o))
         })
         .collect::<Vec<_>>();
 
