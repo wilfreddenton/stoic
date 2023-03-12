@@ -61,16 +61,27 @@ fn new_options() -> Options {
 }
 
 pub fn read_files(dir: ReadDir, dir_name: &str, re: &Regex) -> Vec<(String, String)> {
-    dir.filter_map(|e| e.ok())
-        .filter_map(|e| e.metadata().ok().map(|m| (m, e)))
-        .filter_map(|(m, e)| e.file_name().into_string().ok().map(|n| (n, m)))
-        .filter(|(n, m)| m.is_file() && re.is_match(n))
-        .filter_map(|(n, _)| {
-            fs::read_to_string(format!("{dir_name}{n}"))
+    dir.filter_map(|e| {
+        e.ok().map(|e| {
+            e.metadata()
                 .ok()
-                .map(|s| (n, s))
+                .map(|m| {
+                    e.file_name()
+                        .into_string()
+                        .ok()
+                        .filter(|n| m.is_file() && re.is_match(n))
+                        .map(|n| {
+                            fs::read_to_string(format!("{dir_name}{n}"))
+                                .ok()
+                                .map(|s| (n, s))
+                        })
+                        .flatten()
+                })
+                .flatten()
         })
-        .collect::<Vec<_>>()
+    })
+    .flatten()
+    .collect::<Vec<_>>()
 }
 
 pub fn run_new(path: String) -> Result<(), Box<dyn Error>> {
@@ -255,7 +266,9 @@ pub fn run_build(
                     title: &title,
                     contents: &contents,
                 }),
-            ).ok().map(|o| (title, filename, created_at, o))
+            )
+            .ok()
+            .map(|o| (title, filename, created_at, o))
         })
         .collect::<Vec<_>>();
 
