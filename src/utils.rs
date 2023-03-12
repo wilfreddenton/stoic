@@ -1,11 +1,10 @@
 use pulldown_cmark::{html, Event, HeadingLevel, Options, Parser, Tag};
-use regex::Regex;
 use std::error::Error;
-use std::fs;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::prelude::*;
 use std::path::Path;
 
+// IO Actions
 // https://stackoverflow.com/a/65192210
 pub fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<(), Box<dyn Error>> {
     fs::create_dir_all(&dst)?;
@@ -27,8 +26,8 @@ pub fn create_file(path: String, contents: String) -> Result<(), Box<dyn Error>>
     Ok(())
 }
 
-pub fn md_to_html(path: String, options: Options) -> Result<(String, String), Box<dyn Error>> {
-    let md_str = fs::read_to_string(path)?;
+// Pure Actions
+pub fn md_to_html(md_str: String, options: Options) -> (String, String) {
     let mut parser = Parser::new_ext(&md_str, options);
     let mut inside_header = false;
     let mut title = String::new();
@@ -48,28 +47,5 @@ pub fn md_to_html(path: String, options: Options) -> Result<(String, String), Bo
     parser = Parser::new_ext(&md_str, options);
     let mut html_str = String::new();
     html::push_html(&mut html_str, parser);
-    println!("{}", html_str);
-    Ok((title, html_str))
-}
-
-pub fn for_each_dir_entry<F>(dir: &str, re: &Regex, mut f: F) -> Result<(), Box<dyn Error>>
-where
-    F: FnMut(&str) -> Result<(), Box<dyn Error>>,
-{
-    let mut entries = fs::read_dir(dir)?
-        .filter_map(|e| e.ok())
-        .collect::<Vec<_>>();
-    entries.sort_by_key(|e| e.path());
-    for entry in entries {
-        let metadata = entry.metadata()?;
-        if let Ok(name) = &entry.file_name().into_string() {
-            if metadata.is_file() && re.is_match(name) {
-                if let Err(e) = f(name) {
-                    return Err(e);
-                }
-            }
-        }
-    }
-
-    Ok(())
+    (title, html_str)
 }
