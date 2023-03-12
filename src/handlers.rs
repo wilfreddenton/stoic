@@ -62,25 +62,16 @@ fn new_options() -> Options {
 
 pub fn read_files(dir: ReadDir, dir_name: &str, re: &Regex) -> Vec<(String, String)> {
     dir.filter_map(|e| {
-        e.ok().map(|e| {
-            e.metadata()
-                .ok()
-                .map(|m| {
-                    e.file_name()
-                        .into_string()
-                        .ok()
-                        .filter(|n| m.is_file() && re.is_match(n))
-                        .map(|n| {
-                            fs::read_to_string(format!("{dir_name}{n}"))
-                                .ok()
-                                .map(|s| (n, s))
-                        })
-                        .flatten()
-                })
-                .flatten()
-        })
+        let entry = e.ok()?;
+        let metadata = entry.metadata().ok()?;
+        let name = entry.file_name().into_string().ok()?;
+        if metadata.is_file() && re.is_match(&name) {
+            let out = fs::read_to_string(format!("{dir_name}{name}")).ok()?;
+            Some((name, out))
+        } else {
+            None
+        }
     })
-    .flatten()
     .collect::<Vec<_>>()
 }
 
@@ -142,7 +133,7 @@ pub fn run_build(
             if !ans {
                 return Ok(());
             }
-            
+
             start = Utc::now();
         }
 
@@ -242,7 +233,8 @@ pub fn run_build(
         .filter_map(|(name, md_str)| {
             re.captures(name)
                 .map(|caps| caps["date"].to_string())
-                .map(|d| NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok()).flatten()
+                .map(|d| NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok())
+                .flatten()
                 .map(|dt| {
                     let (title, contents) = md_to_html(md_str.to_owned(), new_options());
                     let filename = name.replace(".md", ".html");
@@ -266,7 +258,8 @@ pub fn run_build(
                     )
                     .ok()
                     .map(|o| (title, filename, created_at, o))
-                }).flatten()
+                })
+                .flatten()
         })
         .collect::<Vec<_>>();
 
