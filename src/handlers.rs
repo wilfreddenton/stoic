@@ -60,7 +60,7 @@ fn new_options() -> Options {
     return options;
 }
 
-pub fn read_files(dir: ReadDir, dir_name: &str, re: &Regex) -> Vec<(String, String)> {
+pub fn read_files_in_dir(dir: ReadDir, dir_name: &str, re: &Regex) -> Vec<(String, String)> {
     dir.filter_map(|e| {
         let entry = e.ok()?;
         let metadata = entry.metadata().ok()?;
@@ -72,7 +72,7 @@ pub fn read_files(dir: ReadDir, dir_name: &str, re: &Regex) -> Vec<(String, Stri
             None
         }
     })
-    .collect::<Vec<_>>()
+    .collect()
 }
 
 pub fn run_new(path: String) -> Result<(), Box<dyn Error>> {
@@ -192,24 +192,25 @@ pub fn run_build(
     let re = Regex::new(r"^[A-Za-z0-9\-]+\.md$")?;
     let mut dir = format!("{input_dir}/pages/");
     let mut r_dir = fs::read_dir(&dir)?;
-    let page_entries = read_files(r_dir, &dir, &re)
+    let page_entries = read_files_in_dir(r_dir, &dir, &re)
         .iter()
         .filter_map(|(name, md_str)| {
             let (title, contents) = md_to_html(md_str.to_owned(), new_options());
             let out_name = name.replace(".md", ".html");
-            h.render(
-                "page",
-                &json!(PageArgs {
-                    path: &[Breadcrumb {
-                        name: &title,
-                        link: &out_name,
-                    }],
-                    title: &title,
-                    contents: &contents
-                }),
-            )
-            .ok()
-            .map(|o| (out_name, o))
+            let out = h
+                .render(
+                    "page",
+                    &json!(PageArgs {
+                        path: &[Breadcrumb {
+                            name: &title,
+                            link: &out_name,
+                        }],
+                        title: &title,
+                        contents: &contents
+                    }),
+                )
+                .ok()?;
+            Some((out_name, out))
         })
         .collect::<Vec<(String, String)>>();
     for (out_name, out) in page_entries {
@@ -228,38 +229,34 @@ pub fn run_build(
     let re = Regex::new(r"^(?P<date>\d{4}-\d{2}-\d{2})-(?P<title>[A-Za-z0-9\-]+)\.md$")?;
     fs::create_dir(format!("{output_dir}/posts/"))?;
     r_dir = fs::read_dir(&dir)?;
-    let post_entries = read_files(r_dir, &dir, &re)
+    let post_entries = read_files_in_dir(r_dir, &dir, &re)
         .iter()
         .filter_map(|(name, md_str)| {
-            re.captures(name)
-                .map(|caps| caps["date"].to_string())
-                .map(|d| NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok())
-                .flatten()
-                .map(|dt| {
-                    let (title, contents) = md_to_html(md_str.to_owned(), new_options());
-                    let filename = name.replace(".md", ".html");
-                    let created_at = dt.format("%b %d, %Y").to_string();
-                    h.render(
-                        "post",
-                        &json!(PostArgs {
-                            path: &[
-                                Breadcrumb {
-                                    name: "Posts",
-                                    link: "posts/",
-                                },
-                                Breadcrumb {
-                                    name: &created_at,
-                                    link: &format!("posts/{filename}"),
-                                }
-                            ],
-                            title: &title,
-                            contents: &contents,
-                        }),
-                    )
-                    .ok()
-                    .map(|o| (title, filename, created_at, o))
-                })
-                .flatten()
+            let caps = re.captures(name)?;
+            let date_str = caps["date"].to_string();
+            let dt = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d").ok()?;
+            let (title, contents) = md_to_html(md_str.to_owned(), new_options());
+            let filename = name.replace(".md", ".html");
+            let created_at = dt.format("%b %d, %Y").to_string();
+            h.render(
+                "post",
+                &json!(PostArgs {
+                    path: &[
+                        Breadcrumb {
+                            name: "Posts",
+                            link: "posts/",
+                        },
+                        Breadcrumb {
+                            name: &created_at,
+                            link: &format!("posts/{filename}"),
+                        }
+                    ],
+                    title: &title,
+                    contents: &contents,
+                }),
+            )
+            .ok()?;
+            Some((title, filename, created_at, contents))
         })
         .collect::<Vec<_>>();
 
