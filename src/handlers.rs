@@ -1,6 +1,6 @@
 use crate::assets::{CSS_STR, JS_STR};
 use crate::templates::TemplateName;
-use crate::utils::{copy_dir_all, create_file, for_each_dir_entry, md_to_html};
+use crate::utils::{copy_dir_all, create_file, md_to_html};
 use chrono::prelude::*;
 use handlebars::Handlebars;
 use inquire::Confirm;
@@ -9,7 +9,7 @@ use regex::Regex;
 use serde::Serialize;
 use serde_json::json;
 use std::error::Error;
-use std::fs;
+use std::fs::{self, ReadDir};
 use std::path::Path;
 use strum::IntoEnumIterator;
 
@@ -51,6 +51,28 @@ struct PostArgs<'a> {
     path: &'a [Breadcrumb<'a>],
     title: &'a str,
     contents: &'a str,
+}
+
+fn new_options() -> Options {
+    let mut options = Options::empty();
+    options.insert(Options::ENABLE_FOOTNOTES);
+    options.insert(Options::ENABLE_HEADING_ATTRIBUTES);
+    return options;
+}
+
+pub fn read_files_in_dir(dir: ReadDir, dir_name: &str, re: &Regex) -> Vec<(String, String)> {
+    dir.filter_map(|e| {
+        let entry = e.ok()?;
+        let metadata = entry.metadata().ok()?;
+        let name = entry.file_name().into_string().ok()?;
+        if metadata.is_file() && re.is_match(&name) {
+            let out = fs::read_to_string(format!("{dir_name}{name}")).ok()?;
+            Some((name, out))
+        } else {
+            None
+        }
+    })
+    .collect()
 }
 
 pub fn run_new(path: String) -> Result<(), Box<dyn Error>> {
@@ -97,6 +119,7 @@ pub fn run_build(
     output_dir: &str,
     should_confirm: bool,
 ) -> Result<(), Box<dyn Error>> {
+    let mut start = Utc::now();
     if let Ok(metadata) = fs::metadata(&output_dir) {
         if metadata.is_file() {
             return Err(format!("{output_dir} is already a file").into());
@@ -110,6 +133,8 @@ pub fn run_build(
             if !ans {
                 return Ok(());
             }
+
+            start = Utc::now();
         }
 
         let entries = fs::read_dir(&output_dir)?;
@@ -155,11 +180,8 @@ pub fn run_build(
         )?;
     }
 
-    let mut options = Options::empty();
-    options.insert(Options::ENABLE_FOOTNOTES);
-    options.insert(Options::ENABLE_HEADING_ATTRIBUTES);
-
-    let (title, contents) = md_to_html(format!("{input_dir}/index.md"), options)?;
+    let md_str = fs::read_to_string(format!("{input_dir}/index.md"))?;
+    let (title, contents) = md_to_html(md_str, new_options());
     let test = &json!(IndexArgs {
         title: &title,
         contents: &contents,
@@ -167,29 +189,33 @@ pub fn run_build(
     let out = h.render("index", test)?;
     create_file(format!("{output_dir}/index.html"), out)?;
 
+    let re = Regex::new(r"^[A-Za-z0-9\-]+\.md$")?;
     let mut dir = format!("{input_dir}/pages/");
-    for_each_dir_entry(
-        &dir,
-        &Regex::new(r"^[A-Za-z0-9\-]+\.md$")?,
-        |name: &str| -> Result<(), Box<dyn Error>> {
-            let (title, contents) = md_to_html(format!("{dir}{name}"), options)?;
+    let mut r_dir = fs::read_dir(&dir)?;
+    let page_entries = read_files_in_dir(r_dir, &dir, &re)
+        .iter()
+        .filter_map(|(name, md_str)| {
+            let (title, contents) = md_to_html(md_str.to_owned(), new_options());
             let out_name = name.replace(".md", ".html");
-            let out = h.render(
-                "page",
-                &json!(PageArgs {
-                    path: &[Breadcrumb {
-                        name: &title,
-                        link: &out_name,
-                    }],
-                    title: &title,
-                    contents: &contents
-                }),
-            )?;
-            create_file(format!("{output_dir}/{out_name}"), out)?;
-
-            Ok(())
-        },
-    )?;
+            let out = h
+                .render(
+                    "page",
+                    &json!(PageArgs {
+                        path: &[Breadcrumb {
+                            name: &title,
+                            link: &out_name,
+                        }],
+                        title: &title,
+                        contents: &contents
+                    }),
+                )
+                .ok()?;
+            Some((out_name, out))
+        })
+        .collect::<Vec<(String, String)>>();
+    for (out_name, out) in page_entries {
+        create_file(format!("{output_dir}/{out_name}"), out)?;
+    }
 
     let mut posts_args = PostsArgs {
         path: &[Breadcrumb {
@@ -202,31 +228,39 @@ pub fn run_build(
     dir = format!("{input_dir}/posts/");
     let re = Regex::new(r"^(?P<date>\d{4}-\d{2}-\d{2})-(?P<title>[A-Za-z0-9\-]+)\.md$")?;
     fs::create_dir(format!("{output_dir}/posts/"))?;
-    for_each_dir_entry(&dir, &re, |name: &str| -> Result<(), Box<dyn Error>> {
-        let caps = re.captures(name).expect("match already performed");
-        let dt = NaiveDate::parse_from_str(&caps["date"].to_string(), "%Y-%m-%d")?;
-        let (title, contents) = md_to_html(format!("{dir}{name}"), options)?;
-        let filename = name.replace(".md", ".html");
-        let created_at = dt.format("%b %d, %Y").to_string();
-        let out = h.render(
-            "post",
-            &json!(PostArgs {
-                path: &[
-                    Breadcrumb {
-                        name: "Posts",
-                        link: "posts/",
-                    },
-                    Breadcrumb {
-                        name: &created_at,
-                        link: &format!("posts/{filename}"),
-                    }
-                ],
-                title: &title,
-                contents: &contents,
-            }),
-        )?;
-        println!("{out}");
-        let out_name = name.replace(".md", ".html");
+    r_dir = fs::read_dir(&dir)?;
+    let post_entries = read_files_in_dir(r_dir, &dir, &re)
+        .iter()
+        .filter_map(|(name, md_str)| {
+            let caps = re.captures(name)?;
+            let date_str = caps["date"].to_string();
+            let dt = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d").ok()?;
+            let (title, contents) = md_to_html(md_str.to_owned(), new_options());
+            let filename = name.replace(".md", ".html");
+            let created_at = dt.format("%b %d, %Y").to_string();
+            h.render(
+                "post",
+                &json!(PostArgs {
+                    path: &[
+                        Breadcrumb {
+                            name: "Posts",
+                            link: "posts/",
+                        },
+                        Breadcrumb {
+                            name: &created_at,
+                            link: &format!("posts/{filename}"),
+                        }
+                    ],
+                    title: &title,
+                    contents: &contents,
+                }),
+            )
+            .ok()?;
+            Some((title, filename, created_at, contents))
+        })
+        .collect::<Vec<_>>();
+
+    for (title, out_name, created_at, out) in post_entries {
         create_file(format!("{output_dir}/posts/{out_name}"), out)?;
 
         posts_args.posts.insert(
@@ -237,12 +271,12 @@ pub fn run_build(
                 title,
             },
         );
-
-        Ok(())
-    })?;
+    }
 
     let out = h.render("posts", &json!(posts_args))?;
     create_file(format!("{output_dir}/posts/index.html"), out)?;
+
+    println!("built in {} ms", (Utc::now() - start).num_milliseconds());
 
     Ok(())
 }
