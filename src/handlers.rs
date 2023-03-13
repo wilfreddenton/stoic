@@ -9,8 +9,9 @@ use regex::Regex;
 use serde::Serialize;
 use serde_json::json;
 use std::error::Error;
-use std::fs::{self, ReadDir};
-use std::path::Path;
+use std::fs::{self, DirEntry, Metadata, ReadDir};
+use std::iter::FilterMap;
+use std::path::{Path, PathBuf};
 use strum::IntoEnumIterator;
 
 #[derive(Serialize)]
@@ -60,19 +61,16 @@ fn new_options() -> Options {
     return options;
 }
 
-pub fn read_files_in_dir(dir: ReadDir, dir_name: &str, re: &Regex) -> Vec<(String, String)> {
+pub fn get_files_in_dir(
+    dir: ReadDir,
+) -> FilterMap<ReadDir, fn(Result<DirEntry, std::io::Error>) -> Option<(String, Metadata, PathBuf)>>
+{
     dir.filter_map(|e| {
         let entry = e.ok()?;
         let metadata = entry.metadata().ok()?;
         let name = entry.file_name().into_string().ok()?;
-        if metadata.is_file() && re.is_match(&name) {
-            let out = fs::read_to_string(format!("{dir_name}{name}")).ok()?;
-            Some((name, out))
-        } else {
-            None
-        }
+        Some((name, metadata, entry.path()))
     })
-    .collect()
 }
 
 pub fn run_new(path: String) -> Result<(), Box<dyn Error>> {
@@ -137,27 +135,21 @@ pub fn run_build(
             start = Utc::now();
         }
 
-        let entries = fs::read_dir(&output_dir)?;
-        for entry in entries {
-            let entry = entry?;
-            let name_opt = entry.file_name().into_string();
-            let metadata = entry.metadata()?;
-            if metadata.is_file() {
-                if let Ok(name) = name_opt {
-                    if name == "CNAME" {
-                        continue;
+        let r_dir = fs::read_dir(&output_dir)?;
+        get_files_in_dir(r_dir)
+            .map(|(name, metadata, path)| -> Result<(), Box<dyn Error>> {
+                if metadata.is_file() {
+                    if name != "CNAME" {
+                        fs::remove_file(path)?;
+                    }
+                } else {
+                    if name != ".git" {
+                        fs::remove_dir_all(path)?;
                     }
                 }
-                fs::remove_file(entry.path())?;
-            } else {
-                if let Ok(name) = name_opt {
-                    if name == ".git" {
-                        continue;
-                    }
-                }
-                fs::remove_dir_all(entry.path())?;
-            }
-        }
+                Ok(())
+            })
+            .for_each(drop);
     } else {
         fs::create_dir(&output_dir)?;
     }
@@ -181,7 +173,7 @@ pub fn run_build(
     }
 
     let md_str = fs::read_to_string(format!("{input_dir}/index.md"))?;
-    let (title, contents) = md_to_html(md_str, new_options());
+    let (title, contents) = md_to_html(md_str.to_owned(), new_options());
     let test = &json!(IndexArgs {
         title: &title,
         contents: &contents,
@@ -192,30 +184,27 @@ pub fn run_build(
     let re = Regex::new(r"^[A-Za-z0-9\-]+\.md$")?;
     let mut dir = format!("{input_dir}/pages/");
     let mut r_dir = fs::read_dir(&dir)?;
-    let page_entries = read_files_in_dir(r_dir, &dir, &re)
-        .iter()
-        .filter_map(|(name, md_str)| {
+    get_files_in_dir(r_dir)
+        .filter(|(name, ..)| re.is_match(name))
+        .map(|(name, ..)| -> Result<(), Box<dyn Error>> {
+            let md_str = fs::read_to_string(format!("{dir}{name}"))?;
             let (title, contents) = md_to_html(md_str.to_owned(), new_options());
             let out_name = name.replace(".md", ".html");
-            let out = h
-                .render(
-                    "page",
-                    &json!(PageArgs {
-                        path: &[Breadcrumb {
-                            name: &title,
-                            link: &out_name,
-                        }],
-                        title: &title,
-                        contents: &contents
-                    }),
-                )
-                .ok()?;
-            Some((out_name, out))
+            let out = h.render(
+                "page",
+                &json!(PageArgs {
+                    path: &[Breadcrumb {
+                        name: &title,
+                        link: &out_name,
+                    }],
+                    title: &title,
+                    contents: &contents
+                }),
+            )?;
+            create_file(format!("{output_dir}/{out_name}"), out)?;
+            Ok(())
         })
-        .collect::<Vec<(String, String)>>();
-    for (out_name, out) in page_entries {
-        create_file(format!("{output_dir}/{out_name}"), out)?;
-    }
+        .for_each(drop);
 
     let mut posts_args = PostsArgs {
         path: &[Breadcrumb {
@@ -229,16 +218,19 @@ pub fn run_build(
     let re = Regex::new(r"^(?P<date>\d{4}-\d{2}-\d{2})-(?P<title>[A-Za-z0-9\-]+)\.md$")?;
     fs::create_dir(format!("{output_dir}/posts/"))?;
     r_dir = fs::read_dir(&dir)?;
-    let post_entries = read_files_in_dir(r_dir, &dir, &re)
-        .iter()
-        .filter_map(|(name, md_str)| {
-            let caps = re.captures(name)?;
+    get_files_in_dir(r_dir)
+        .filter(|(name, metadata, ..)| metadata.is_file() && re.is_match(name))
+        .map(|(name, ..)| -> Result<(), Box<dyn Error>> {
+            let md_str = fs::read_to_string(format!("{dir}{name}"))?;
+            let caps = re
+                .captures(&name)
+                .ok_or(std::io::Error::new(std::io::ErrorKind::Other, "captures"))?;
             let date_str = caps["date"].to_string();
-            let dt = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d").ok()?;
+            let dt = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")?;
             let (title, contents) = md_to_html(md_str.to_owned(), new_options());
-            let filename = name.replace(".md", ".html");
+            let out_name = name.replace(".md", ".html");
             let created_at = dt.format("%b %d, %Y").to_string();
-            h.render(
+            let out = h.render(
                 "post",
                 &json!(PostArgs {
                     path: &[
@@ -248,30 +240,28 @@ pub fn run_build(
                         },
                         Breadcrumb {
                             name: &created_at,
-                            link: &format!("posts/{filename}"),
+                            link: &format!("posts/{out_name}"),
                         }
                     ],
                     title: &title,
                     contents: &contents,
                 }),
-            )
-            .ok()?;
-            Some((title, filename, created_at, contents))
+            )?;
+
+            create_file(format!("{output_dir}/posts/{out_name}"), out)?;
+
+            posts_args.posts.insert(
+                0,
+                Post {
+                    filename: out_name,
+                    created_at,
+                    title,
+                },
+            );
+
+            Ok(())
         })
-        .collect::<Vec<_>>();
-
-    for (title, out_name, created_at, out) in post_entries {
-        create_file(format!("{output_dir}/posts/{out_name}"), out)?;
-
-        posts_args.posts.insert(
-            0,
-            Post {
-                filename: out_name,
-                created_at,
-                title,
-            },
-        );
-    }
+        .for_each(drop);
 
     let out = h.render("posts", &json!(posts_args))?;
     create_file(format!("{output_dir}/posts/index.html"), out)?;
