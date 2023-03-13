@@ -203,20 +203,19 @@ pub fn run_build(
         }
 
         let r_dir = fs::read_dir(&output_dir)?;
-        get_files_in_dir(r_dir)
-            .map(|(name, metadata, path)| -> Result<(), Box<dyn Error>> {
-                if metadata.is_file() {
-                    if name != "CNAME" {
-                        fs::remove_file(path)?;
-                    }
-                } else {
-                    if name != ".git" {
-                        fs::remove_dir_all(path)?;
-                    }
-                }
-                Ok(())
-            })
-            .for_each(drop);
+        let output_entries = get_files_in_dir(r_dir);
+        for (name, metadata, path) in output_entries {
+            match name.as_str() {
+                ".git" => continue,
+                "CNAME" => continue,
+                _ => ()
+            }
+            if metadata.is_file() {
+                fs::remove_file(path)?;
+            } else {
+                fs::remove_dir_all(path)?;
+            }
+        }
     } else {
         fs::create_dir(&output_dir)?;
     }
@@ -254,7 +253,7 @@ pub fn run_build(
     let page_entries = get_files_in_dir(r_dir);
     for (name, metadata, ..) in page_entries {
         if !(metadata.is_file() && re.is_match(&name)) {
-                continue;
+            continue;
         }
 
         build_page(&h, &name, &pages_input_dir, &output_dir)?;
