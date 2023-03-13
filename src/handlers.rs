@@ -61,7 +61,7 @@ fn new_options() -> Options {
     return options;
 }
 
-pub fn get_files_in_dir(
+fn get_files_in_dir(
     dir: ReadDir,
 ) -> FilterMap<ReadDir, fn(Result<DirEntry, std::io::Error>) -> Option<(String, Metadata, PathBuf)>>
 {
@@ -71,6 +71,73 @@ pub fn get_files_in_dir(
         let name = entry.file_name().into_string().ok()?;
         Some((name, metadata, entry.path()))
     })
+}
+
+fn build_post(
+    h: &Handlebars,
+    name: &str,
+    input_dir: &str,
+    output_dir: &str,
+) -> Result<Post, Box<dyn Error>> {
+    let md_str = fs::read_to_string(format!("{input_dir}{name}"))?;
+    let re = Regex::new(r"^(?P<date>\d{4}-\d{2}-\d{2})-(?P<title>[A-Za-z0-9\-]+)\.md$")?;
+    let caps = re
+        .captures(&name)
+        .ok_or(std::io::Error::new(std::io::ErrorKind::Other, "captures"))?;
+    let date_str = caps["date"].to_string();
+    let dt = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")?;
+    let (title, contents) = md_to_html(md_str.to_owned(), new_options());
+    let out_name = name.replace(".md", ".html");
+    let created_at = dt.format("%b %d, %Y").to_string();
+    let out = h.render(
+        "post",
+        &json!(PostArgs {
+            path: &[
+                Breadcrumb {
+                    name: "Posts",
+                    link: "posts/",
+                },
+                Breadcrumb {
+                    name: &created_at,
+                    link: &format!("posts/{out_name}"),
+                }
+            ],
+            title: &title,
+            contents: &contents,
+        }),
+    )?;
+
+    create_file(format!("{output_dir}{out_name}"), out)?;
+
+    Ok(Post {
+        filename: out_name,
+        created_at,
+        title,
+    })
+}
+
+fn build_page(
+    h: &Handlebars,
+    name: &str,
+    input_dir: &str,
+    output_dir: &str,
+) -> Result<(), Box<dyn Error>> {
+    let md_str = fs::read_to_string(format!("{input_dir}{name}"))?;
+    let (title, contents) = md_to_html(md_str.to_owned(), new_options());
+    let out_name = name.replace(".md", ".html");
+    let out = h.render(
+        "page",
+        &json!(PageArgs {
+            path: &[Breadcrumb {
+                name: &title,
+                link: &out_name,
+            }],
+            title: &title,
+            contents: &contents
+        }),
+    )?;
+    create_file(format!("{output_dir}/{out_name}"), out)?;
+    Ok(())
 }
 
 pub fn run_new(path: String) -> Result<(), Box<dyn Error>> {
@@ -182,29 +249,16 @@ pub fn run_build(
     create_file(format!("{output_dir}/index.html"), out)?;
 
     let re = Regex::new(r"^[A-Za-z0-9\-]+\.md$")?;
-    let mut dir = format!("{input_dir}/pages/");
-    let mut r_dir = fs::read_dir(&dir)?;
-    get_files_in_dir(r_dir)
-        .filter(|(name, ..)| re.is_match(name))
-        .map(|(name, ..)| -> Result<(), Box<dyn Error>> {
-            let md_str = fs::read_to_string(format!("{dir}{name}"))?;
-            let (title, contents) = md_to_html(md_str.to_owned(), new_options());
-            let out_name = name.replace(".md", ".html");
-            let out = h.render(
-                "page",
-                &json!(PageArgs {
-                    path: &[Breadcrumb {
-                        name: &title,
-                        link: &out_name,
-                    }],
-                    title: &title,
-                    contents: &contents
-                }),
-            )?;
-            create_file(format!("{output_dir}/{out_name}"), out)?;
-            Ok(())
-        })
-        .for_each(drop);
+    let pages_input_dir = format!("{input_dir}/pages/");
+    let mut r_dir = fs::read_dir(&pages_input_dir)?;
+    let page_entries = get_files_in_dir(r_dir);
+    for (name, metadata, ..) in page_entries {
+        if !(metadata.is_file() && re.is_match(&name)) {
+                continue;
+        }
+
+        build_page(&h, &name, &pages_input_dir, &output_dir)?;
+    }
 
     let mut posts_args = PostsArgs {
         path: &[Breadcrumb {
@@ -214,54 +268,19 @@ pub fn run_build(
         title: "Posts",
         posts: Vec::new(),
     };
-    dir = format!("{input_dir}/posts/");
-    let re = Regex::new(r"^(?P<date>\d{4}-\d{2}-\d{2})-(?P<title>[A-Za-z0-9\-]+)\.md$")?;
-    fs::create_dir(format!("{output_dir}/posts/"))?;
-    r_dir = fs::read_dir(&dir)?;
-    get_files_in_dir(r_dir)
-        .filter(|(name, metadata, ..)| metadata.is_file() && re.is_match(name))
-        .map(|(name, ..)| -> Result<(), Box<dyn Error>> {
-            let md_str = fs::read_to_string(format!("{dir}{name}"))?;
-            let caps = re
-                .captures(&name)
-                .ok_or(std::io::Error::new(std::io::ErrorKind::Other, "captures"))?;
-            let date_str = caps["date"].to_string();
-            let dt = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")?;
-            let (title, contents) = md_to_html(md_str.to_owned(), new_options());
-            let out_name = name.replace(".md", ".html");
-            let created_at = dt.format("%b %d, %Y").to_string();
-            let out = h.render(
-                "post",
-                &json!(PostArgs {
-                    path: &[
-                        Breadcrumb {
-                            name: "Posts",
-                            link: "posts/",
-                        },
-                        Breadcrumb {
-                            name: &created_at,
-                            link: &format!("posts/{out_name}"),
-                        }
-                    ],
-                    title: &title,
-                    contents: &contents,
-                }),
-            )?;
+    let posts_input_dir = format!("{input_dir}/posts/");
+    r_dir = fs::read_dir(&posts_input_dir)?;
+    let posts_output_dir = format!("{output_dir}/posts/");
+    fs::create_dir(&posts_output_dir)?;
+    let post_entries = get_files_in_dir(r_dir);
+    for (name, metadata, ..) in post_entries {
+        if !(metadata.is_file() && re.is_match(&name)) {
+            continue;
+        }
 
-            create_file(format!("{output_dir}/posts/{out_name}"), out)?;
-
-            posts_args.posts.insert(
-                0,
-                Post {
-                    filename: out_name,
-                    created_at,
-                    title,
-                },
-            );
-
-            Ok(())
-        })
-        .for_each(drop);
+        let post = build_post(&h, &name, &posts_input_dir, &posts_output_dir)?;
+        posts_args.posts.insert(0, post)
+    }
 
     let out = h.render("posts", &json!(posts_args))?;
     create_file(format!("{output_dir}/posts/index.html"), out)?;
