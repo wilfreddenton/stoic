@@ -208,7 +208,7 @@ pub fn run_build(
             match name.as_str() {
                 ".git" => continue,
                 "CNAME" => continue,
-                _ => ()
+                _ => (),
             }
             if metadata.is_file() {
                 fs::remove_file(path)?;
@@ -271,7 +271,9 @@ pub fn run_build(
     r_dir = fs::read_dir(&posts_input_dir)?;
     let posts_output_dir = format!("{output_dir}/posts/");
     fs::create_dir(&posts_output_dir)?;
-    let post_entries = get_files_in_dir(r_dir);
+    let mut post_entries = get_files_in_dir(r_dir)
+        .collect::<Vec<_>>();
+    post_entries.sort_by_key(|(.., path)| path.to_owned());
     for (name, metadata, ..) in post_entries {
         if !(metadata.is_file() && re.is_match(&name)) {
             continue;
