@@ -136,8 +136,8 @@ fn build_page(
             contents: &contents
         }),
     )?;
-    create_file(format!("{output_dir}/{out_name}"), out)?;
-    Ok(())
+
+    create_file(format!("{output_dir}/{out_name}"), out)
 }
 
 pub fn run_new(path: String) -> Result<(), Box<dyn Error>> {
@@ -179,6 +179,33 @@ pub fn run_new(path: String) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn remove_path(metadata: Metadata, path: PathBuf) -> Result<(), std::io::Error> {
+    if metadata.is_file() {
+        fs::remove_file(path)
+    } else {
+        fs::remove_dir_all(path)
+    }
+}
+
+fn read_template(name: &TemplateName, input_dir: &str) -> Result<String, Box<dyn Error>> {
+        Ok(fs::read_to_string(format!("{input_dir}/templates/{name}.hbs"))?
+            .split("\n")
+            .map(|l| l.trim())
+            .collect::<Vec<&str>>()
+            .join("\n"))
+}
+
+fn build_index(h: &Handlebars, input_dir: &str, output_dir: &str) -> Result<(), Box<dyn Error>> {
+    let md_str = fs::read_to_string(format!("{input_dir}/index.md"))?;
+    let (title, contents) = md_to_html(md_str.to_owned(), new_options());
+    let test = &json!(IndexArgs {
+        title: &title,
+        contents: &contents,
+    });
+    let out = h.render("index", test)?;
+    create_file(format!("{output_dir}/index.html"), out)
+}
+
 pub fn run_build(
     input_dir: &str,
     output_dir: &str,
@@ -210,16 +237,15 @@ pub fn run_build(
                 "CNAME" => continue,
                 _ => (),
             }
-            if metadata.is_file() {
-                fs::remove_file(path)?;
-            } else {
-                fs::remove_dir_all(path)?;
-            }
+
+            remove_path(metadata, path)?;
         }
     } else {
         fs::create_dir(&output_dir)?;
     }
 
+    let posts_output_dir = format!("{output_dir}/posts/");
+    fs::create_dir(&posts_output_dir)?;
     fs::create_dir(format!("{output_dir}/assets/"))?;
     copy_dir_all(
         format!("{input_dir}/assets"),
@@ -228,24 +254,11 @@ pub fn run_build(
 
     let mut h = Handlebars::new();
     for name in TemplateName::iter() {
-        h.register_template_string(
-            &name.to_string(),
-            fs::read_to_string(format!("{input_dir}/templates/{name}.hbs"))?
-                .split("\n")
-                .map(|l| l.trim())
-                .collect::<Vec<&str>>()
-                .join("\n"),
-        )?;
+        let template = read_template(&name, &input_dir)?;
+        h.register_template_string(&name.to_string(), template)?;
     }
 
-    let md_str = fs::read_to_string(format!("{input_dir}/index.md"))?;
-    let (title, contents) = md_to_html(md_str.to_owned(), new_options());
-    let test = &json!(IndexArgs {
-        title: &title,
-        contents: &contents,
-    });
-    let out = h.render("index", test)?;
-    create_file(format!("{output_dir}/index.html"), out)?;
+    build_index(&h, &input_dir, &output_dir)?;
 
     let re = Regex::new(r"^[A-Za-z0-9\-]+\.md$")?;
     let pages_input_dir = format!("{input_dir}/pages/");
@@ -269,10 +282,7 @@ pub fn run_build(
     };
     let posts_input_dir = format!("{input_dir}/posts/");
     r_dir = fs::read_dir(&posts_input_dir)?;
-    let posts_output_dir = format!("{output_dir}/posts/");
-    fs::create_dir(&posts_output_dir)?;
-    let mut post_entries = get_files_in_dir(r_dir)
-        .collect::<Vec<_>>();
+    let mut post_entries = get_files_in_dir(r_dir).collect::<Vec<_>>();
     post_entries.sort_by_key(|(.., path)| path.to_owned());
     for (name, metadata, ..) in post_entries {
         if !(metadata.is_file() && re.is_match(&name)) {
