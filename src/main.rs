@@ -30,10 +30,11 @@ enum Command {
     },
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     match args.command {
-        Command::New { name } => run_new(name),
+        Command::New { name } => run_new(name).await,
         Command::Build {
             input_dir,
             output_dir,

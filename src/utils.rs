@@ -26,6 +26,7 @@ pub fn create_file(path: String, contents: String) -> Result<(), Box<dyn Error>>
     Ok(())
 }
 
+
 // Pure Actions
 pub fn md_to_html(md_str: String, options: Options) -> (String, String) {
     let mut parser = Parser::new_ext(&md_str, options);

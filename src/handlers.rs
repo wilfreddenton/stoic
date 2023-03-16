@@ -2,6 +2,7 @@ use crate::assets::{CSS_STR, JS_STR};
 use crate::templates::TemplateName;
 use crate::utils::{copy_dir_all, create_file, md_to_html};
 use chrono::prelude::*;
+use futures::future::{try_join_all, try_join4};
 use handlebars::Handlebars;
 use inquire::Confirm;
 use pulldown_cmark::Options;
@@ -13,6 +14,7 @@ use std::fs::{self, DirEntry, Metadata, ReadDir};
 use std::iter::FilterMap;
 use std::path::{Path, PathBuf};
 use strum::IntoEnumIterator;
+use tokio::fs as afs;
 
 #[derive(Serialize)]
 struct Post {
@@ -140,41 +142,49 @@ fn build_page(
     create_file(format!("{output_dir}/{out_name}"), out)
 }
 
-pub fn run_new(path: String) -> Result<(), Box<dyn Error>> {
+pub async fn run_new(path: String) -> Result<(), Box<dyn Error>> {
     let name = Path::new(&path)
         .file_stem()
         .expect("Invalid input")
         .to_string_lossy();
-    fs::create_dir(&path)?;
-    create_file(format!("{path}/index.md"), format!("# {name}\n"))?;
-
-    fs::create_dir(format!("{path}/assets"))?;
-    create_file(
-        format!("{path}/assets/style.css"),
-        format!("{}", CSS_STR.to_string().trim_start()),
-    )?;
-    create_file(
-        format!("{path}/assets/script.js"),
-        format!("{}", JS_STR.to_string().trim_start()),
-    )?;
-
-    fs::create_dir(format!("{path}/posts"))?;
     let date = Utc::now().format("%Y-%m-%d");
-    create_file(
-        format!("{path}/posts/{date}-hello-world.md"),
-        "# Hello, World!\n".to_string(),
-    )?;
 
-    fs::create_dir(format!("{path}/pages"))?;
-    create_file(format!("{path}/pages/about.md"), "# About\n".to_string())?;
+    afs::create_dir(&path).await?;
 
-    fs::create_dir(format!("{path}/templates"))?;
-    for template_name in TemplateName::iter() {
-        create_file(
-            format!("{path}/templates/{template_name}.hbs"),
-            format!("{}", template_name.template_str().trim_start()),
-        )?;
-    }
+    try_join4(
+        afs::create_dir(format!("{path}/assets")),
+        afs::create_dir(format!("{path}/posts")),
+        afs::create_dir(format!("{path}/pages")),
+        afs::create_dir(format!("{path}/templates")),
+    ).await?;
+
+    let mut build_template_actions = TemplateName::iter()
+        .map(|n| {
+            afs::write(
+                format!("{path}/templates/{n}.hbs"),
+                format!("{}", n.template_str().trim_start()),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    build_template_actions.extend([
+        afs::write(format!("{path}/index.md"), format!("# {name}\n")),
+        afs::write(
+            format!("{path}/assets/style.css"),
+            format!("{}", CSS_STR.to_string().trim_start()),
+        ),
+        afs::write(
+            format!("{path}/assets/script.js"),
+            format!("{}", JS_STR.to_string().trim_start()),
+        ),
+        afs::write(
+            format!("{path}/posts/{date}-hello-world.md"),
+            "# Hello, World!\n".to_string(),
+        ),
+        afs::write(format!("{path}/pages/about.md"), "# About\n".to_string()),
+    ]);
+
+    try_join_all(build_template_actions).await?;
 
     Ok(())
 }
@@ -188,11 +198,13 @@ fn remove_path(metadata: Metadata, path: PathBuf) -> Result<(), std::io::Error> 
 }
 
 fn read_template(name: &TemplateName, input_dir: &str) -> Result<String, Box<dyn Error>> {
-        Ok(fs::read_to_string(format!("{input_dir}/templates/{name}.hbs"))?
+    Ok(
+        fs::read_to_string(format!("{input_dir}/templates/{name}.hbs"))?
             .split("\n")
             .map(|l| l.trim())
             .collect::<Vec<&str>>()
-            .join("\n"))
+            .join("\n"),
+    )
 }
 
 fn build_index(h: &Handlebars, input_dir: &str, output_dir: &str) -> Result<(), Box<dyn Error>> {
