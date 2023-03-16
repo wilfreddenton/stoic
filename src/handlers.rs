@@ -143,6 +143,7 @@ fn build_page(
 }
 
 pub async fn run_new(path: String) -> Result<(), Box<dyn Error>> {
+    let start = Utc::now();
     let name = Path::new(&path)
         .file_stem()
         .expect("Invalid input")
@@ -185,6 +186,8 @@ pub async fn run_new(path: String) -> Result<(), Box<dyn Error>> {
     ]);
 
     try_join_all(build_template_actions).await?;
+
+    println!("built in {} ms", (Utc::now() - start).num_milliseconds());
 
     Ok(())
 }
