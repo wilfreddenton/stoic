@@ -1,11 +1,9 @@
 use pulldown_cmark::{html, Event, HeadingLevel, Options, Parser, Tag};
 use std::error::Error;
-use std::fs::File;
-use std::io::prelude::*;
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
-pub fn get_dir_paths(path: String) -> Result<(Vec<PathBuf>, Vec<PathBuf>), Box<dyn Error>> {
+pub fn get_dir_paths(path: &PathBuf) -> Result<(Vec<PathBuf>, Vec<PathBuf>), Box<dyn Error>> {
     let mut dir_paths = Vec::new();
     let mut file_paths = Vec::new();
     for entry in WalkDir::new(&path).into_iter().filter_map(|e| e.ok()).collect::<Vec<_>>() {
@@ -22,12 +20,6 @@ pub fn get_dir_paths(path: String) -> Result<(Vec<PathBuf>, Vec<PathBuf>), Box<d
     }
 
     Ok((dir_paths, file_paths))
-}
-
-pub fn create_file(path: String, contents: String) -> Result<(), Box<dyn Error>> {
-    let mut f = File::create(format!("{path}"))?;
-    write!(f, "{contents}")?;
-    Ok(())
 }
 
 // Pure Actions
