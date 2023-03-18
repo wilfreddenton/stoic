@@ -38,7 +38,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Command::Build {
             input_dir,
             output_dir,
-        } => run_build(&input_dir, &output_dir, true),
+        } => run_build(&input_dir, &output_dir, true).await,
         Command::Watch {input_dir, output_dir} => Ok(()),
     }
 }

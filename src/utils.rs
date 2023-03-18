@@ -1,23 +1,27 @@
 use pulldown_cmark::{html, Event, HeadingLevel, Options, Parser, Tag};
 use std::error::Error;
-use std::fs::{self, File};
+use std::fs::File;
 use std::io::prelude::*;
-use std::path::Path;
+use std::path::PathBuf;
+use walkdir::WalkDir;
 
-// IO Actions
-// https://stackoverflow.com/a/65192210
-pub fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<(), Box<dyn Error>> {
-    fs::create_dir_all(&dst)?;
-    for entry in fs::read_dir(src)? {
-        let entry = entry?;
-        let ty = entry.file_type()?;
-        if ty.is_dir() {
-            copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
+pub fn get_dir_paths(path: String) -> Result<(Vec<PathBuf>, Vec<PathBuf>), Box<dyn Error>> {
+    let mut dir_paths = Vec::new();
+    let mut file_paths = Vec::new();
+    for entry in WalkDir::new(&path).into_iter().filter_map(|e| e.ok()).collect::<Vec<_>>() {
+        let metadata = entry.metadata()?;
+        let path = entry.path().strip_prefix(&path).unwrap().to_path_buf();
+        if path.to_str().unwrap() == "" {
+            continue;
+        }
+        if metadata.is_dir() {
+            dir_paths.push(path);
         } else {
-            fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
+            file_paths.push(path);
         }
     }
-    Ok(())
+
+    Ok((dir_paths, file_paths))
 }
 
 pub fn create_file(path: String, contents: String) -> Result<(), Box<dyn Error>> {
@@ -25,7 +29,6 @@ pub fn create_file(path: String, contents: String) -> Result<(), Box<dyn Error>>
     write!(f, "{contents}")?;
     Ok(())
 }
-
 
 // Pure Actions
 pub fn md_to_html(md_str: String, options: Options) -> (String, String) {

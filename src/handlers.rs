@@ -1,8 +1,8 @@
 use crate::assets::{CSS_STR, JS_STR};
 use crate::templates::TemplateName;
-use crate::utils::{copy_dir_all, create_file, md_to_html};
+use crate::utils::{create_file, get_dir_paths, md_to_html};
 use chrono::prelude::*;
-use futures::future::{try_join_all, try_join4};
+use futures::future::{try_join, try_join4, try_join_all};
 use handlebars::Handlebars;
 use inquire::Confirm;
 use pulldown_cmark::Options;
@@ -157,7 +157,8 @@ pub async fn run_new(path: String) -> Result<(), Box<dyn Error>> {
         afs::create_dir(format!("{path}/posts")),
         afs::create_dir(format!("{path}/pages")),
         afs::create_dir(format!("{path}/templates")),
-    ).await?;
+    )
+    .await?;
 
     let mut build_template_actions = TemplateName::iter()
         .map(|n| {
@@ -221,7 +222,7 @@ fn build_index(h: &Handlebars, input_dir: &str, output_dir: &str) -> Result<(), 
     create_file(format!("{output_dir}/index.html"), out)
 }
 
-pub fn run_build(
+pub async fn run_build(
     input_dir: &str,
     output_dir: &str,
     should_confirm: bool,
@@ -260,12 +261,23 @@ pub fn run_build(
     }
 
     let posts_output_dir = format!("{output_dir}/posts/");
-    fs::create_dir(&posts_output_dir)?;
-    fs::create_dir(format!("{output_dir}/assets/"))?;
-    copy_dir_all(
-        format!("{input_dir}/assets"),
-        format!("{output_dir}/assets"),
-    )?;
+    try_join(
+        afs::create_dir(&posts_output_dir),
+        afs::create_dir(format!("{output_dir}/assets/")),
+    )
+    .await?;
+
+    let input_assets_path = format!("{input_dir}/assets/");
+    let output_assets_path = format!("{output_dir}/assets/");
+    let (dir_paths, file_paths) = get_dir_paths(input_assets_path.to_owned())?;
+    try_join_all(dir_paths.into_iter().map(|p| {
+        let d = p.display();
+        afs::create_dir(format!("{output_assets_path}{d}"))
+    })).await?;
+    try_join_all(file_paths.into_iter().map(|p| {
+        let d = p.display();
+        afs::copy(format!("{input_assets_path}{d}"), format!("{output_assets_path}{d}"))
+    })).await?;
 
     let mut h = Handlebars::new();
     for name in TemplateName::iter() {
