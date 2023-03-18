@@ -144,46 +144,51 @@ fn build_page(
 
 pub async fn run_new(path: String) -> Result<(), Box<dyn Error>> {
     let start = Utc::now();
-    let name = Path::new(&path)
+    let blog_dir = Path::new(&path);
+    let assets_dir = blog_dir.join("assets");
+    let pages_dir = blog_dir.join("pages");
+    let posts_dir = blog_dir.join("posts");
+    let templates_dir = blog_dir.join("template");
+    let name = blog_dir
         .file_stem()
-        .expect("Invalid input")
-        .to_string_lossy();
+        .expect("Could not derive name from path")
+        .to_string_lossy()
+        .to_string();
     let date = Utc::now().format("%Y-%m-%d");
 
-    afs::create_dir(&path).await?;
-
+    afs::create_dir(blog_dir).await?;
     try_join4(
-        afs::create_dir(format!("{path}/assets")),
-        afs::create_dir(format!("{path}/posts")),
-        afs::create_dir(format!("{path}/pages")),
-        afs::create_dir(format!("{path}/templates")),
+        afs::create_dir(&assets_dir),
+        afs::create_dir(&pages_dir),
+        afs::create_dir(&posts_dir),
+        afs::create_dir(&templates_dir),
     )
     .await?;
 
     let mut build_template_actions = TemplateName::iter()
         .map(|n| {
             afs::write(
-                format!("{path}/templates/{n}.hbs"),
-                format!("{}", n.template_str().trim_start()),
+                templates_dir.join(format!("{n}.hbs")).to_path_buf(),
+                n.template_str().trim_start().to_owned(),
             )
         })
         .collect::<Vec<_>>();
 
     build_template_actions.extend([
-        afs::write(format!("{path}/index.md"), format!("# {name}\n")),
+        afs::write(blog_dir.join("index.md").to_path_buf(), format!("# {name}\n")),
         afs::write(
-            format!("{path}/assets/style.css"),
-            format!("{}", CSS_STR.to_string().trim_start()),
+            assets_dir.join("style.css"),
+            CSS_STR.to_string().trim_start().to_owned(),
         ),
         afs::write(
-            format!("{path}/assets/script.js"),
-            format!("{}", JS_STR.to_string().trim_start()),
+            assets_dir.join("script.js"),
+            JS_STR.to_string().trim_start().to_owned(),
         ),
+        afs::write(pages_dir.join("about.md"), "# About\n".to_owned()),
         afs::write(
-            format!("{path}/posts/{date}-hello-world.md"),
-            "# Hello, World!\n".to_string(),
+            posts_dir.join(format!("{date}-hello-world.md")),
+            "# Hello, World!\n".to_owned(),
         ),
-        afs::write(format!("{path}/pages/about.md"), "# About\n".to_string()),
     ]);
 
     try_join_all(build_template_actions).await?;
@@ -273,11 +278,16 @@ pub async fn run_build(
     try_join_all(dir_paths.into_iter().map(|p| {
         let d = p.display();
         afs::create_dir(format!("{output_assets_path}{d}"))
-    })).await?;
+    }))
+    .await?;
     try_join_all(file_paths.into_iter().map(|p| {
         let d = p.display();
-        afs::copy(format!("{input_assets_path}{d}"), format!("{output_assets_path}{d}"))
-    })).await?;
+        afs::copy(
+            format!("{input_assets_path}{d}"),
+            format!("{output_assets_path}{d}"),
+        )
+    }))
+    .await?;
 
     let mut h = Handlebars::new();
     for name in TemplateName::iter() {
