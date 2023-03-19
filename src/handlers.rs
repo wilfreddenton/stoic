@@ -1,6 +1,6 @@
 use crate::assets::{CSS_STR, JS_STR};
 use crate::templates::TemplateName;
-use crate::utils::{get_dir_paths, md_to_html};
+use crate::utils::{get_dir_paths, get_files_in_dir, md_to_html, read_template, remove_path};
 use chrono::prelude::*;
 use futures::future::{try_join, try_join4, try_join_all};
 use handlebars::Handlebars;
@@ -10,13 +10,9 @@ use regex::Regex;
 use serde::Serialize;
 use serde_json::json;
 use std::error::Error;
-use std::fs::Metadata;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use strum::IntoEnumIterator;
-use tokio::fs::{
-    copy, create_dir, metadata, read_dir, read_to_string, remove_dir_all, remove_file, write,
-    ReadDir,
-};
+use tokio::fs::{copy, create_dir, metadata, read_dir, read_to_string, write};
 
 #[derive(Serialize)]
 struct Post {
@@ -63,86 +59,6 @@ fn new_options() -> Options {
     options.insert(Options::ENABLE_FOOTNOTES);
     options.insert(Options::ENABLE_HEADING_ATTRIBUTES);
     return options;
-}
-
-async fn get_files_in_dir(
-    mut dir: ReadDir,
-) -> Result<Vec<(String, Metadata, PathBuf)>, Box<dyn Error>> {
-    let mut entries = Vec::new();
-    while let Some(entry) = dir.next_entry().await? {
-        let metadata = entry.metadata().await?;
-        let name = entry.file_name().to_string_lossy().to_string();
-        entries.push((name, metadata, entry.path()));
-    }
-    Ok(entries)
-}
-
-async fn build_post<'a>(
-    h: &Handlebars<'a>,
-    name: &str,
-    input_dir: &Path,
-    output_dir: &Path,
-) -> Result<Post, Box<dyn Error>> {
-    let md_str = read_to_string(input_dir.join(name)).await?;
-    let re = Regex::new(r"^(?P<date>\d{4}-\d{2}-\d{2})-(?P<title>[A-Za-z0-9\-]+)\.md$")?;
-    let caps = re
-        .captures(&name)
-        .ok_or(std::io::Error::new(std::io::ErrorKind::Other, "captures"))?;
-    let date_str = caps["date"].to_string();
-    let dt = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")?;
-    let (title, contents) = md_to_html(md_str.to_owned(), new_options());
-    let out_name = name.replace(".md", ".html");
-    let created_at = dt.format("%b %d, %Y").to_string();
-    let out = h.render(
-        "post",
-        &json!(PostArgs {
-            path: &[
-                Breadcrumb {
-                    name: "Posts",
-                    link: "posts/",
-                },
-                Breadcrumb {
-                    name: &created_at,
-                    link: &format!("posts/{out_name}"),
-                }
-            ],
-            title: &title,
-            contents: &contents,
-        }),
-    )?;
-
-    write(output_dir.join(&out_name), out).await?;
-
-    Ok(Post {
-        filename: out_name,
-        created_at,
-        title,
-    })
-}
-
-async fn build_page<'a>(
-    h: &Handlebars<'a>,
-    name: &str,
-    input_dir: &Path,
-    output_dir: &Path,
-) -> Result<(), Box<dyn Error>> {
-    let md_str = read_to_string(input_dir.join(name)).await?;
-    let (title, contents) = md_to_html(md_str.to_owned(), new_options());
-    let out_name = name.replace(".md", ".html");
-    let out = h.render(
-        "page",
-        &json!(PageArgs {
-            path: &[Breadcrumb {
-                name: &title,
-                link: &out_name,
-            }],
-            title: &title,
-            contents: &contents
-        }),
-    )?;
-
-    write(output_dir.join(out_name), out).await?;
-    Ok(())
 }
 
 pub async fn run_new(blog_dir: &Path) -> Result<(), Box<dyn Error>> {
@@ -203,23 +119,6 @@ pub async fn run_new(blog_dir: &Path) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn remove_path(metadata: Metadata, path: PathBuf) -> Result<(), std::io::Error> {
-    if metadata.is_file() {
-        remove_file(path).await
-    } else {
-        remove_dir_all(path).await
-    }
-}
-
-async fn read_template(name: &TemplateName, dir: &Path) -> Result<String, Box<dyn Error>> {
-    Ok(read_to_string(dir.join(format!("{name}.hbs")))
-        .await?
-        .split("\n")
-        .map(|l| l.trim())
-        .collect::<Vec<&str>>()
-        .join("\n"))
-}
-
 async fn build_index<'a>(
     h: &Handlebars<'a>,
     input_dir: &Path,
@@ -235,6 +134,75 @@ async fn build_index<'a>(
     write(output_dir.join("index.html"), out).await?;
     Ok(())
 }
+
+async fn build_page<'a>(
+    h: &Handlebars<'a>,
+    name: &str,
+    input_dir: &Path,
+    output_dir: &Path,
+) -> Result<(), Box<dyn Error>> {
+    let md_str = read_to_string(input_dir.join(name)).await?;
+    let (title, contents) = md_to_html(md_str.to_owned(), new_options());
+    let out_name = name.replace(".md", ".html");
+    let out = h.render(
+        "page",
+        &json!(PageArgs {
+            path: &[Breadcrumb {
+                name: &title,
+                link: &out_name,
+            }],
+            title: &title,
+            contents: &contents
+        }),
+    )?;
+
+    write(output_dir.join(out_name), out).await?;
+    Ok(())
+}
+
+async fn build_post<'a>(
+    h: &Handlebars<'a>,
+    name: &str,
+    input_dir: &Path,
+    output_dir: &Path,
+) -> Result<Post, Box<dyn Error>> {
+    let md_str = read_to_string(input_dir.join(name)).await?;
+    let re = Regex::new(r"^(?P<date>\d{4}-\d{2}-\d{2})-(?P<title>[A-Za-z0-9\-]+)\.md$")?;
+    let caps = re
+        .captures(&name)
+        .ok_or(std::io::Error::new(std::io::ErrorKind::Other, "captures"))?;
+    let date_str = caps["date"].to_string();
+    let dt = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")?;
+    let (title, contents) = md_to_html(md_str.to_owned(), new_options());
+    let out_name = name.replace(".md", ".html");
+    let created_at = dt.format("%b %d, %Y").to_string();
+    let out = h.render(
+        "post",
+        &json!(PostArgs {
+            path: &[
+                Breadcrumb {
+                    name: "Posts",
+                    link: "posts/",
+                },
+                Breadcrumb {
+                    name: &created_at,
+                    link: &format!("posts/{out_name}"),
+                }
+            ],
+            title: &title,
+            contents: &contents,
+        }),
+    )?;
+
+    write(output_dir.join(&out_name), out).await?;
+
+    Ok(Post {
+        filename: out_name,
+        created_at,
+        title,
+    })
+}
+
 
 pub async fn run_build(
     input_dir: &Path,
@@ -277,11 +245,11 @@ pub async fn run_build(
     }
 
     let assets_input_dir = input_dir.join("assets");
-    let assets_output_dir = output_dir.join("assets");
     let pages_input_dir = input_dir.join("pages");
     let posts_input_dir = input_dir.join("posts");
-    let posts_output_dir = output_dir.join("posts");
     let template_input_dir = input_dir.join("templates");
+    let assets_output_dir = output_dir.join("assets");
+    let posts_output_dir = output_dir.join("posts");
     try_join(
         create_dir(&posts_output_dir),
         create_dir(&assets_output_dir),

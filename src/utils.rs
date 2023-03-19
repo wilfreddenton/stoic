@@ -1,13 +1,20 @@
+use crate::templates::TemplateName;
 use pulldown_cmark::{html, Event, HeadingLevel, Options, Parser, Tag};
 use std::error::Error;
-use std::path::PathBuf;
+use std::fs::Metadata;
+use std::path::{Path, PathBuf};
+use tokio::fs::{read_to_string, remove_dir_all, remove_file, ReadDir};
 use walkdir::WalkDir;
 
 // IO Actions
 pub fn get_dir_paths(path: &PathBuf) -> Result<(Vec<PathBuf>, Vec<PathBuf>), Box<dyn Error>> {
     let mut dir_paths = Vec::new();
     let mut file_paths = Vec::new();
-    for entry in WalkDir::new(&path).into_iter().filter_map(|e| e.ok()).collect::<Vec<_>>() {
+    for entry in WalkDir::new(&path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .collect::<Vec<_>>()
+    {
         let metadata = entry.metadata()?;
         let path = entry.path().strip_prefix(&path).unwrap().to_path_buf();
         if path.to_str().unwrap() == "" {
@@ -21,6 +28,35 @@ pub fn get_dir_paths(path: &PathBuf) -> Result<(Vec<PathBuf>, Vec<PathBuf>), Box
     }
 
     Ok((dir_paths, file_paths))
+}
+
+pub async fn get_files_in_dir(
+    mut dir: ReadDir,
+) -> Result<Vec<(String, Metadata, PathBuf)>, Box<dyn Error>> {
+    let mut entries = Vec::new();
+    while let Some(entry) = dir.next_entry().await? {
+        let metadata = entry.metadata().await?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        entries.push((name, metadata, entry.path()));
+    }
+    Ok(entries)
+}
+
+pub async fn remove_path(metadata: Metadata, path: PathBuf) -> Result<(), std::io::Error> {
+    if metadata.is_file() {
+        remove_file(path).await
+    } else {
+        remove_dir_all(path).await
+    }
+}
+
+pub async fn read_template(name: &TemplateName, dir: &Path) -> Result<String, Box<dyn Error>> {
+    Ok(read_to_string(dir.join(format!("{name}.hbs")))
+        .await?
+        .split("\n")
+        .map(|l| l.trim())
+        .collect::<Vec<&str>>()
+        .join("\n"))
 }
 
 // Pure Actions
