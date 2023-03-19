@@ -1,66 +1,18 @@
 use crate::assets::{CSS_STR, JS_STR};
 use crate::templates::TemplateName;
 use crate::utils::{get_dir_paths, get_files_in_dir, md_to_html, read_template, remove_path};
+use crate::types::*;
 use chrono::prelude::*;
 use futures::future::{try_join, try_join4, try_join_all};
 use futures::FutureExt;
 use handlebars::Handlebars;
 use inquire::Confirm;
-use pulldown_cmark::Options;
 use regex::Regex;
-use serde::Serialize;
 use serde_json::json;
 use std::error::Error;
 use std::path::Path;
 use strum::IntoEnumIterator;
 use tokio::fs::{copy, create_dir, metadata, read_dir, read_to_string, write};
-
-#[derive(Serialize)]
-struct Post {
-    filename: String,
-    title: String,
-    created_at: String,
-}
-
-#[derive(Serialize)]
-struct Breadcrumb<'a> {
-    name: &'a str,
-    link: &'a str,
-}
-
-#[derive(Serialize)]
-struct IndexArgs<'a> {
-    title: &'a str,
-    contents: &'a str,
-}
-
-#[derive(Serialize)]
-struct PageArgs<'a> {
-    path: &'a [Breadcrumb<'a>],
-    title: &'a str,
-    contents: &'a str,
-}
-
-#[derive(Serialize)]
-struct PostsArgs<'a> {
-    path: &'a [Breadcrumb<'a>],
-    title: &'a str,
-    posts: Vec<Post>,
-}
-
-#[derive(Serialize)]
-struct PostArgs<'a> {
-    path: &'a [Breadcrumb<'a>],
-    title: &'a str,
-    contents: &'a str,
-}
-
-fn new_options() -> Options {
-    let mut options = Options::empty();
-    options.insert(Options::ENABLE_FOOTNOTES);
-    options.insert(Options::ENABLE_HEADING_ATTRIBUTES);
-    return options;
-}
 
 pub async fn run_new(blog_dir: &Path) -> Result<(), Box<dyn Error>> {
     let start = Utc::now();
@@ -126,7 +78,7 @@ async fn build_index<'a>(
     output_dir: &Path,
 ) -> Result<(), Box<dyn Error>> {
     let md_str = read_to_string(input_dir.join("index.md")).await?;
-    let (title, contents) = md_to_html(md_str.to_owned(), new_options());
+    let (title, contents) = md_to_html(md_str.to_owned());
     let test = &json!(IndexArgs {
         title: &title,
         contents: &contents,
@@ -143,7 +95,7 @@ async fn build_page<'a>(
     output_dir: &Path,
 ) -> Result<(), Box<dyn Error>> {
     let md_str = read_to_string(input_dir.join(name)).await?;
-    let (title, contents) = md_to_html(md_str.to_owned(), new_options());
+    let (title, contents) = md_to_html(md_str.to_owned());
     let out_name = name.replace(".md", ".html");
     let out = h.render(
         "page",
@@ -192,7 +144,7 @@ async fn build_post<'a>(
         .ok_or(std::io::Error::new(std::io::ErrorKind::Other, "captures"))?;
     let date_str = caps["date"].to_string();
     let dt = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")?;
-    let (title, contents) = md_to_html(md_str.to_owned(), new_options());
+    let (title, contents) = md_to_html(md_str.to_owned());
     let out_name = name.replace(".md", ".html");
     let created_at = dt.format("%b %d, %Y").to_string();
     let out = h.render(

@@ -60,7 +60,10 @@ pub async fn read_template(name: TemplateName, dir: &Path) -> Result<(String, St
 }
 
 // Pure Actions
-pub fn md_to_html(md_str: String, options: Options) -> (String, String) {
+pub fn md_to_html(md_str: String) -> (String, String) {
+    let mut options = Options::empty();
+    options.insert(Options::ENABLE_FOOTNOTES);
+    options.insert(Options::ENABLE_HEADING_ATTRIBUTES);
     let mut parser = Parser::new_ext(&md_str, options);
     let mut inside_header = false;
     let mut title = String::new();
