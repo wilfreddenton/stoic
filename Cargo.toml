@@ -7,6 +7,7 @@ description = "a simple static blog generator"
 [dependencies]
 chrono = "0.4"
 clap = { version = "4.1", features = ["derive"] }
+futures = "0.3"
 handlebars = "4.3"
 inquire = "0.6"
 pulldown-cmark = { version = "0.9", default-features = false }
@@ -15,3 +16,5 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 strum = "0.24"
 strum_macros = "0.24"
+tokio = { version = "1", features = ["full"] }
+walkdir = "2"
