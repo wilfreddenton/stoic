@@ -3,6 +3,7 @@ use crate::templates::TemplateName;
 use crate::utils::{get_dir_paths, get_files_in_dir, md_to_html, read_template, remove_path};
 use chrono::prelude::*;
 use futures::future::{try_join, try_join4, try_join_all};
+use futures::FutureExt;
 use handlebars::Handlebars;
 use inquire::Confirm;
 use pulldown_cmark::Options;
@@ -160,6 +161,24 @@ async fn build_page<'a>(
     Ok(())
 }
 
+async fn build_pages<'a>(
+    h: &Handlebars<'a>,
+    pages_input_dir: &Path,
+    pages_output_dir: &Path,
+) -> Result<(), Box<dyn Error>> {
+    let re = Regex::new(r"^[A-Za-z0-9\-]+\.md$")?;
+    let r_dir = read_dir(&pages_input_dir).await?;
+    let page_entries = get_files_in_dir(r_dir).await?;
+    for (name, metadata, ..) in page_entries {
+        if !(metadata.is_file() && re.is_match(&name)) {
+            continue;
+        }
+
+        build_page(h, &name, &pages_input_dir, &pages_output_dir).await?;
+    }
+    Ok(())
+}
+
 async fn build_post<'a>(
     h: &Handlebars<'a>,
     name: &str,
@@ -203,6 +222,35 @@ async fn build_post<'a>(
     })
 }
 
+pub async fn build_posts<'a>(
+    h: &Handlebars<'a>,
+    posts_input_dir: &Path,
+    posts_output_dir: &Path,
+) -> Result<(), Box<dyn Error>> {
+    let mut posts_args = PostsArgs {
+        path: &[Breadcrumb {
+            name: "Posts",
+            link: "posts",
+        }],
+        title: "Posts",
+        posts: Vec::new(),
+    };
+    let r_dir = read_dir(&posts_input_dir).await?;
+    let mut post_entries = get_files_in_dir(r_dir).await?;
+    post_entries.sort_by_key(|(.., path)| path.to_owned());
+    for (name, metadata, ..) in post_entries {
+        if !metadata.is_file() {
+            continue;
+        }
+
+        let post = build_post(&h, &name, &posts_input_dir, &posts_output_dir).await?;
+        posts_args.posts.insert(0, post)
+    }
+
+    let out = h.render("posts", &json!(posts_args))?;
+    write(posts_output_dir.join("index.html"), out).await?;
+    Ok(())
+}
 
 pub async fn run_build(
     input_dir: &Path,
@@ -272,46 +320,18 @@ pub async fn run_build(
     .await?;
 
     let mut h = Handlebars::new();
-    for name in TemplateName::iter() {
-        let template = read_template(&name, &template_input_dir).await?;
-        h.register_template_string(&name.to_string(), template)?;
+    let templates =
+        try_join_all(TemplateName::iter().map(|n| read_template(n, &template_input_dir))).await?;
+    for (name, template) in templates {
+        h.register_template_string(&name, template)?;
     }
 
-    build_index(&h, input_dir, output_dir).await?;
-
-    let re = Regex::new(r"^[A-Za-z0-9\-]+\.md$")?;
-    let mut r_dir = read_dir(&pages_input_dir).await?;
-    let page_entries = get_files_in_dir(r_dir).await?;
-    for (name, metadata, ..) in page_entries {
-        if !(metadata.is_file() && re.is_match(&name)) {
-            continue;
-        }
-
-        build_page(&h, &name, &pages_input_dir, output_dir).await?;
-    }
-
-    let mut posts_args = PostsArgs {
-        path: &[Breadcrumb {
-            name: "Posts",
-            link: "posts",
-        }],
-        title: "Posts",
-        posts: Vec::new(),
-    };
-    r_dir = read_dir(&posts_input_dir).await?;
-    let mut post_entries = get_files_in_dir(r_dir).await?;
-    post_entries.sort_by_key(|(.., path)| path.to_owned());
-    for (name, metadata, ..) in post_entries {
-        if !(metadata.is_file() && re.is_match(&name)) {
-            continue;
-        }
-
-        let post = build_post(&h, &name, &posts_input_dir, &posts_output_dir).await?;
-        posts_args.posts.insert(0, post)
-    }
-
-    let out = h.render("posts", &json!(posts_args))?;
-    write(posts_output_dir.join("index.html"), out).await?;
+    try_join_all([
+        build_index(&h, input_dir, output_dir).boxed(),
+        build_pages(&h, &pages_input_dir, output_dir).boxed(),
+        build_posts(&h, &posts_input_dir, &posts_output_dir).boxed(),
+    ])
+    .await?;
 
     println!("built in {} ms", (Utc::now() - start).num_milliseconds());
 

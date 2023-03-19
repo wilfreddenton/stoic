@@ -50,13 +50,13 @@ pub async fn remove_path(metadata: Metadata, path: PathBuf) -> Result<(), std::i
     }
 }
 
-pub async fn read_template(name: &TemplateName, dir: &Path) -> Result<String, Box<dyn Error>> {
-    Ok(read_to_string(dir.join(format!("{name}.hbs")))
+pub async fn read_template(name: TemplateName, dir: &Path) -> Result<(String, String), Box<dyn Error>> {
+    Ok((name.to_string(), read_to_string(dir.join(format!("{name}.hbs")))
         .await?
         .split("\n")
         .map(|l| l.trim())
         .collect::<Vec<&str>>()
-        .join("\n"))
+        .join("\n")))
 }
 
 // Pure Actions
