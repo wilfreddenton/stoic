@@ -10,11 +10,13 @@ use regex::Regex;
 use serde::Serialize;
 use serde_json::json;
 use std::error::Error;
-use std::fs::{self, DirEntry, Metadata, ReadDir};
-use std::iter::FilterMap;
+use std::fs::Metadata;
 use std::path::{Path, PathBuf};
 use strum::IntoEnumIterator;
-use tokio::fs as afs;
+use tokio::fs::{
+    copy, create_dir, metadata, read_dir, read_to_string, remove_dir_all, remove_file, write,
+    ReadDir,
+};
 
 #[derive(Serialize)]
 struct Post {
@@ -63,16 +65,16 @@ fn new_options() -> Options {
     return options;
 }
 
-fn get_files_in_dir(
-    dir: ReadDir,
-) -> FilterMap<ReadDir, fn(Result<DirEntry, std::io::Error>) -> Option<(String, Metadata, PathBuf)>>
-{
-    dir.filter_map(|e| {
-        let entry = e.ok()?;
-        let metadata = entry.metadata().ok()?;
-        let name = entry.file_name().into_string().ok()?;
-        Some((name, metadata, entry.path()))
-    })
+async fn get_files_in_dir(
+    mut dir: ReadDir,
+) -> Result<Vec<(String, Metadata, PathBuf)>, Box<dyn Error>> {
+    let mut entries = Vec::new();
+    while let Some(entry) = dir.next_entry().await? {
+        let metadata = entry.metadata().await?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        entries.push((name, metadata, entry.path()));
+    }
+    Ok(entries)
 }
 
 async fn build_post<'a>(
@@ -81,7 +83,7 @@ async fn build_post<'a>(
     input_dir: &Path,
     output_dir: &Path,
 ) -> Result<Post, Box<dyn Error>> {
-    let md_str = afs::read_to_string(input_dir.join(name)).await?;
+    let md_str = read_to_string(input_dir.join(name)).await?;
     let re = Regex::new(r"^(?P<date>\d{4}-\d{2}-\d{2})-(?P<title>[A-Za-z0-9\-]+)\.md$")?;
     let caps = re
         .captures(&name)
@@ -109,7 +111,7 @@ async fn build_post<'a>(
         }),
     )?;
 
-    afs::write(output_dir.join(&out_name), out).await?;
+    write(output_dir.join(&out_name), out).await?;
 
     Ok(Post {
         filename: out_name,
@@ -124,7 +126,7 @@ async fn build_page<'a>(
     input_dir: &Path,
     output_dir: &Path,
 ) -> Result<(), Box<dyn Error>> {
-    let md_str = afs::read_to_string(input_dir.join(name)).await?;
+    let md_str = read_to_string(input_dir.join(name)).await?;
     let (title, contents) = md_to_html(md_str.to_owned(), new_options());
     let out_name = name.replace(".md", ".html");
     let out = h.render(
@@ -139,7 +141,7 @@ async fn build_page<'a>(
         }),
     )?;
 
-    afs::write(output_dir.join(out_name), out).await?;
+    write(output_dir.join(out_name), out).await?;
     Ok(())
 }
 
@@ -156,18 +158,18 @@ pub async fn run_new(blog_dir: &Path) -> Result<(), Box<dyn Error>> {
         .to_string();
     let date = Utc::now().format("%Y-%m-%d");
 
-    afs::create_dir(blog_dir).await?;
+    create_dir(blog_dir).await?;
     try_join4(
-        afs::create_dir(&assets_dir),
-        afs::create_dir(&pages_dir),
-        afs::create_dir(&posts_dir),
-        afs::create_dir(&templates_dir),
+        create_dir(&assets_dir),
+        create_dir(&pages_dir),
+        create_dir(&posts_dir),
+        create_dir(&templates_dir),
     )
     .await?;
 
     let mut build_template_actions = TemplateName::iter()
         .map(|n| {
-            afs::write(
+            write(
                 templates_dir.join(format!("{n}.hbs")).to_path_buf(),
                 n.template_str().trim_start().to_owned(),
             )
@@ -175,20 +177,20 @@ pub async fn run_new(blog_dir: &Path) -> Result<(), Box<dyn Error>> {
         .collect::<Vec<_>>();
 
     build_template_actions.extend([
-        afs::write(
+        write(
             blog_dir.join("index.md").to_path_buf(),
             format!("# {name}\n"),
         ),
-        afs::write(
+        write(
             assets_dir.join("style.css"),
             CSS_STR.to_string().trim_start().to_owned(),
         ),
-        afs::write(
+        write(
             assets_dir.join("script.js"),
             JS_STR.to_string().trim_start().to_owned(),
         ),
-        afs::write(pages_dir.join("about.md"), "# About\n".to_owned()),
-        afs::write(
+        write(pages_dir.join("about.md"), "# About\n".to_owned()),
+        write(
             posts_dir.join(format!("{date}-hello-world.md")),
             "# Hello, World!\n".to_owned(),
         ),
@@ -201,33 +203,36 @@ pub async fn run_new(blog_dir: &Path) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn remove_path(metadata: Metadata, path: PathBuf) -> Result<(), std::io::Error> {
+async fn remove_path(metadata: Metadata, path: PathBuf) -> Result<(), std::io::Error> {
     if metadata.is_file() {
-        fs::remove_file(path)
+        remove_file(path).await
     } else {
-        fs::remove_dir_all(path)
+        remove_dir_all(path).await
     }
 }
 
-fn read_template(name: &TemplateName, dir: &Path) -> Result<String, Box<dyn Error>> {
-    Ok(
-        fs::read_to_string(dir.join(format!("{name}.hbs")))?
-            .split("\n")
-            .map(|l| l.trim())
-            .collect::<Vec<&str>>()
-            .join("\n"),
-    )
+async fn read_template(name: &TemplateName, dir: &Path) -> Result<String, Box<dyn Error>> {
+    Ok(read_to_string(dir.join(format!("{name}.hbs")))
+        .await?
+        .split("\n")
+        .map(|l| l.trim())
+        .collect::<Vec<&str>>()
+        .join("\n"))
 }
 
-async fn build_index<'a>(h: &Handlebars<'a>, input_dir: &Path, output_dir: &Path) -> Result<(), Box<dyn Error>> {
-    let md_str = afs::read_to_string(input_dir.join("index.md")).await?;
+async fn build_index<'a>(
+    h: &Handlebars<'a>,
+    input_dir: &Path,
+    output_dir: &Path,
+) -> Result<(), Box<dyn Error>> {
+    let md_str = read_to_string(input_dir.join("index.md")).await?;
     let (title, contents) = md_to_html(md_str.to_owned(), new_options());
     let test = &json!(IndexArgs {
         title: &title,
         contents: &contents,
     });
     let out = h.render("index", test)?;
-    afs::write(output_dir.join("index.html"), out).await?;
+    write(output_dir.join("index.html"), out).await?;
     Ok(())
 }
 
@@ -237,7 +242,7 @@ pub async fn run_build(
     should_confirm: bool,
 ) -> Result<(), Box<dyn Error>> {
     let mut start = Utc::now();
-    if let Ok(metadata) = fs::metadata(&output_dir) {
+    if let Ok(metadata) = metadata(&output_dir).await {
         if metadata.is_file() {
             return Err(format!("{} is a file", output_dir.display()).into());
         }
@@ -256,8 +261,8 @@ pub async fn run_build(
             start = Utc::now();
         }
 
-        let r_dir = fs::read_dir(&output_dir)?;
-        let output_entries = get_files_in_dir(r_dir);
+        let r_dir = read_dir(&output_dir).await?;
+        let output_entries = get_files_in_dir(r_dir).await?;
         for (name, metadata, path) in output_entries {
             match name.as_str() {
                 ".git" => continue,
@@ -265,10 +270,10 @@ pub async fn run_build(
                 _ => (),
             }
 
-            remove_path(metadata, path)?;
+            remove_path(metadata, path).await?;
         }
     } else {
-        afs::create_dir(&output_dir).await?;
+        create_dir(&output_dir).await?;
     }
 
     let assets_input_dir = input_dir.join("assets");
@@ -278,8 +283,8 @@ pub async fn run_build(
     let posts_output_dir = output_dir.join("posts");
     let template_input_dir = input_dir.join("templates");
     try_join(
-        afs::create_dir(&posts_output_dir),
-        afs::create_dir(&assets_output_dir),
+        create_dir(&posts_output_dir),
+        create_dir(&assets_output_dir),
     )
     .await?;
 
@@ -287,11 +292,11 @@ pub async fn run_build(
     try_join_all(
         dir_paths
             .into_iter()
-            .map(|p| afs::create_dir(assets_output_dir.join(p))),
+            .map(|p| create_dir(assets_output_dir.join(p))),
     )
     .await?;
     try_join_all(file_paths.into_iter().map(|p| {
-        afs::copy(
+        copy(
             assets_input_dir.join(p.to_owned()),
             assets_output_dir.join(p.to_owned()),
         )
@@ -300,15 +305,15 @@ pub async fn run_build(
 
     let mut h = Handlebars::new();
     for name in TemplateName::iter() {
-        let template = read_template(&name, &template_input_dir)?;
+        let template = read_template(&name, &template_input_dir).await?;
         h.register_template_string(&name.to_string(), template)?;
     }
 
     build_index(&h, input_dir, output_dir).await?;
 
     let re = Regex::new(r"^[A-Za-z0-9\-]+\.md$")?;
-    let mut r_dir = fs::read_dir(&pages_input_dir)?;
-    let page_entries = get_files_in_dir(r_dir);
+    let mut r_dir = read_dir(&pages_input_dir).await?;
+    let page_entries = get_files_in_dir(r_dir).await?;
     for (name, metadata, ..) in page_entries {
         if !(metadata.is_file() && re.is_match(&name)) {
             continue;
@@ -325,8 +330,8 @@ pub async fn run_build(
         title: "Posts",
         posts: Vec::new(),
     };
-    r_dir = fs::read_dir(&posts_input_dir)?;
-    let mut post_entries = get_files_in_dir(r_dir).collect::<Vec<_>>();
+    r_dir = read_dir(&posts_input_dir).await?;
+    let mut post_entries = get_files_in_dir(r_dir).await?;
     post_entries.sort_by_key(|(.., path)| path.to_owned());
     for (name, metadata, ..) in post_entries {
         if !(metadata.is_file() && re.is_match(&name)) {
@@ -338,7 +343,7 @@ pub async fn run_build(
     }
 
     let out = h.render("posts", &json!(posts_args))?;
-    afs::write(posts_output_dir.join("index.html"), out).await?;
+    write(posts_output_dir.join("index.html"), out).await?;
 
     println!("built in {} ms", (Utc::now() - start).num_milliseconds());
 

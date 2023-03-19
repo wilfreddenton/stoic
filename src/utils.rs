@@ -3,6 +3,7 @@ use std::error::Error;
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
+// IO Actions
 pub fn get_dir_paths(path: &PathBuf) -> Result<(Vec<PathBuf>, Vec<PathBuf>), Box<dyn Error>> {
     let mut dir_paths = Vec::new();
     let mut file_paths = Vec::new();
