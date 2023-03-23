@@ -7,10 +7,12 @@ use futures::future::{try_join, try_join4, try_join_all};
 use futures::FutureExt;
 use handlebars::Handlebars;
 use inquire::Confirm;
+use notify::RecursiveMode;
+use notify_debouncer_mini::new_debouncer;
 use regex::Regex;
 use serde_json::json;
 use std::error::Error;
-use std::path::Path;
+use std::{path::Path, time::Duration, sync::mpsc};
 use strum::IntoEnumIterator;
 use tokio::fs::{copy, create_dir, metadata, read_dir, read_to_string, write};
 
@@ -286,6 +288,27 @@ pub async fn run_build(
     .await?;
 
     println!("built in {} ms", (Utc::now() - start).num_milliseconds());
+
+    Ok(())
+}
+
+pub async fn run_watch(input_dir: &Path, output_dir: &Path) -> Result<(), Box<dyn Error>> {
+    let (tx, rx) = mpsc::channel();
+
+    let mut debouncer = new_debouncer(Duration::from_secs(1), None, tx)?;
+    debouncer.watcher().watch(input_dir, RecursiveMode::Recursive)?;
+
+    println!("watching: {}", input_dir.display());
+    println!("building: {}", output_dir.display());
+    while let Ok(res) = rx.recv() {
+        match res {
+            Ok(_) => {
+                println!("change detected; building...");
+                run_build(input_dir, output_dir, false).await?
+            },
+            Err(e) => panic!("{:?}", e),
+        }
+    }
 
     Ok(())
 }

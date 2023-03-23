@@ -4,7 +4,7 @@ pub mod templates;
 pub mod utils;
 pub mod types;
 
-use crate::handlers::{run_build, run_new};
+use crate::handlers::{run_build, run_new, run_watch};
 use clap::Parser;
 use std::{error::Error, path::Path};
 
@@ -40,6 +40,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
             input_dir,
             output_dir,
         } => run_build(Path::new(&input_dir), Path::new(&output_dir), true).await,
-        Command::Watch {input_dir, output_dir} => Ok(()),
+        Command::Watch {input_dir, output_dir} => run_watch(Path::new(&input_dir), Path::new(&output_dir)).await
     }
 }
