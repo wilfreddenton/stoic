@@ -5,7 +5,7 @@ is a simple static blog generator created to learn about Rust and its library ec
 ## Installation
 
 ```
-cargo install --git https://github.com/wilfreddenton/patina
+cargo install patina
 ```
 
 ## Usage
