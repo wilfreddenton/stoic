@@ -1,7 +1,11 @@
 [package]
 name = "patina"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
+authors = ["Wilfred Denton <wilfred@hey.com>"]
+readme = "README.md"
+repository = "https://github.com/wilfreddenton/patina"
+license = "MIT"
 description = "a simple static blog generator"
 
 [dependencies]
