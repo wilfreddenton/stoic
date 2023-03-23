@@ -1,17 +1,17 @@
-# patina
+# stoic
 
 is a simple static blog generator created to learn about Rust and its library ecosystem.
 
 ## Installation
 
 ```
-cargo install patina
+cargo install stoic
 ```
 
 ## Usage
 
 ```
-patina new blog
+stoic new blog
 ```
 
 generates a new blog in the `blog/` directory with file structure:
@@ -38,10 +38,10 @@ blog
 You can run:
 
 ```
-patina build blog dist
+stoic build blog dist
 ```
 
-to have `patina` generate the corresponding static html in the `dist/` directory with file structure:
+to have `stoic` generate the corresponding static html in the `dist/` directory with file structure:
 
 ```
 dist/
@@ -56,10 +56,10 @@ dist/
 ```
 
 ```
-patina watch blog dist
+stoic watch blog dist
 ```
 
-tells patina to watch the `blog/` for changes and rebuild the blog automatically.
+tells `stoic` to watch the `blog/` for changes and rebuild the blog automatically.
 
 ## Examples
 
