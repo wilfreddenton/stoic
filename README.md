@@ -18,12 +18,11 @@ generates a new blog in the `blog/` directory with file structure:
 
 ```
 blog
+├── about.md
+├── index.md
 ├── assets
 │   ├── script.js
 │   └── style.css
-├── index.md
-├── pages
-│   └── about.md
 ├── posts
 │   └── 2022-01-26-hello-world.md
 └── templates
@@ -46,10 +45,10 @@ to have `stoic` generate the corresponding static html in the `dist/` directory 
 ```
 dist/
 ├── about.html
+├── index.html
 ├── assets
 │   ├── script.js
 │   └── style.css
-├── index.html
 └── posts
     ├── 2022-01-26-hello-world.html
     └── index.html

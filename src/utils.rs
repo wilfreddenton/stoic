@@ -30,7 +30,7 @@ pub fn get_dir_paths(path: &PathBuf) -> Result<(Vec<PathBuf>, Vec<PathBuf>), Box
     Ok((dir_paths, file_paths))
 }
 
-pub async fn get_files_in_dir(
+pub async fn get_entries_in_dir(
     mut dir: ReadDir,
 ) -> Result<Vec<(String, Metadata, PathBuf)>, Box<dyn Error + Send + Sync>> {
     let mut entries = Vec::new();

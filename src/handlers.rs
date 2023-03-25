@@ -1,9 +1,9 @@
 use crate::assets::{CSS_STR, JS_STR};
 use crate::templates::TemplateName;
 use crate::types::*;
-use crate::utils::{get_dir_paths, get_files_in_dir, md_to_html, read_template, remove_path};
+use crate::utils::{get_dir_paths, get_entries_in_dir, md_to_html, read_template, remove_path};
 use chrono::prelude::*;
-use futures::future::{try_join4, try_join_all};
+use futures::future::{try_join3, try_join_all};
 use futures::FutureExt;
 use handlebars::Handlebars;
 use inflector::Inflector;
@@ -16,23 +16,21 @@ use std::{path::Path, sync::mpsc, time::Duration};
 use strum::IntoEnumIterator;
 use tokio::fs::{copy, create_dir, metadata, read_dir, read_to_string, write};
 
-pub async fn run_new(blog_dir: &Path) -> Result<(), Box<dyn Error + Send + Sync>> {
+pub async fn run_new(root_dir: &Path) -> Result<(), Box<dyn Error + Send + Sync>> {
     let start = Utc::now();
-    let assets_dir = blog_dir.join("assets");
-    let pages_dir = blog_dir.join("pages");
-    let posts_dir = blog_dir.join("posts");
-    let templates_dir = blog_dir.join("template");
-    let name = blog_dir
+    let assets_dir = root_dir.join("assets");
+    let posts_dir = root_dir.join("posts");
+    let templates_dir = root_dir.join("templates");
+    let name = root_dir
         .file_stem()
         .expect("Could not derive name from path")
         .to_string_lossy()
         .to_string();
     let date = Utc::now().format("%Y-%m-%d");
 
-    create_dir(blog_dir).await?;
-    try_join4(
+    create_dir(root_dir).await?;
+    try_join3(
         create_dir(&assets_dir),
-        create_dir(&pages_dir),
         create_dir(&posts_dir),
         create_dir(&templates_dir),
     )
@@ -49,9 +47,10 @@ pub async fn run_new(blog_dir: &Path) -> Result<(), Box<dyn Error + Send + Sync>
 
     build_template_actions.extend([
         write(
-            blog_dir.join("index.md").to_path_buf(),
-            format!("# {name}\n"),
+            root_dir.join("index.md").to_path_buf(),
+            format!("# {}\n", name.to_title_case()),
         ),
+        write(root_dir.join("about.md"), "# About\n".to_owned()),
         write(
             assets_dir.join("style.css"),
             CSS_STR.to_string().trim_start().to_owned(),
@@ -60,10 +59,14 @@ pub async fn run_new(blog_dir: &Path) -> Result<(), Box<dyn Error + Send + Sync>
             assets_dir.join("script.js"),
             JS_STR.to_string().trim_start().to_owned(),
         ),
-        write(pages_dir.join("about.md"), "# About\n".to_owned()),
         write(
             posts_dir.join(format!("{date}-hello-world.md")),
-            "# Hello, World!\n".to_owned(),
+            format!(r"<!--metadata
+date = {date}
+-->
+
+# Hello, World!
+").to_owned(),
         ),
     ]);
 
@@ -183,7 +186,7 @@ pub async fn build_entities<'a>(
     let entities_input_dir = input_dir.join(&name);
     let entities_output_dir = output_dir.join(&name);
     let r_dir = read_dir(&entities_input_dir).await?;
-    let entries = get_files_in_dir(r_dir).await?;
+    let entries = get_entries_in_dir(r_dir).await?;
     let mut entities = try_join_all(
         entries
             .iter()
@@ -217,6 +220,7 @@ pub async fn run_build(
     should_confirm: bool,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let mut start = Utc::now();
+    metadata(&input_dir).await?;
     if let Ok(metadata) = metadata(&output_dir).await {
         if metadata.is_file() {
             return Err(format!("{} is a file", output_dir.display()).into());
@@ -237,7 +241,7 @@ pub async fn run_build(
         }
 
         let r_dir = read_dir(&output_dir).await?;
-        let output_entries = get_files_in_dir(r_dir).await?;
+        let output_entries = get_entries_in_dir(r_dir).await?;
         for (name, metadata, path) in output_entries {
             match name.as_str() {
                 ".git" => continue,
@@ -254,7 +258,7 @@ pub async fn run_build(
     let reserved_filenames = vec!["README.md", "readme.md", "index.md"];
     let reserved_dirnames = vec![".git", "assets", "templates"];
     let input_r_dir = read_dir(input_dir).await?;
-    let input_entries = get_files_in_dir(input_r_dir).await?;
+    let input_entries = get_entries_in_dir(input_r_dir).await?;
     let mut page_names: Vec<String> = vec![];
     let mut collection_names: Vec<String> = vec![];
     for (name, metadata, _) in input_entries {
@@ -295,7 +299,7 @@ pub async fn run_build(
 
     let templates_input_dir = input_dir.join("templates");
     let templates_input_r_dir = read_dir(&templates_input_dir).await?;
-    let template_entries = get_files_in_dir(templates_input_r_dir).await?;
+    let template_entries = get_entries_in_dir(templates_input_r_dir).await?;
     let templates = try_join_all(
         template_entries
             .iter()
@@ -307,17 +311,19 @@ pub async fn run_build(
         h.register_template_string(&name, template)?;
     }
 
-    let mut build_actions = page_names
-        .iter()
-        .map(|name| build_page(&h, name.to_owned(), input_dir, output_dir).boxed())
-        .collect::<Vec<_>>();
+    let mut build_actions = vec![build_index(&h, input_dir, output_dir).boxed()];
+    build_actions.extend(
+        page_names
+            .iter()
+            .map(|name| build_page(&h, name.to_owned(), input_dir, output_dir).boxed())
+            .collect::<Vec<_>>(),
+    );
     build_actions.extend(
         collection_names
             .iter()
             .map(|name| build_entities(&h, name, input_dir, output_dir).boxed())
             .collect::<Vec<_>>(),
     );
-    build_actions.extend([build_index(&h, input_dir, output_dir).boxed()]);
     try_join_all(build_actions).await?;
 
     println!("built in {} ms", (Utc::now() - start).num_milliseconds());
