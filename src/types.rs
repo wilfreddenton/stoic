@@ -11,6 +11,7 @@ pub struct EntityMetadata {
 pub struct Entity {
     pub filename: String,
     pub title: String,
+    pub created_at_iso: String,
     pub created_at: String,
 }
 

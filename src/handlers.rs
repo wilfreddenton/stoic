@@ -9,7 +9,6 @@ use handlebars::Handlebars;
 use inquire::Confirm;
 use notify::RecursiveMode;
 use notify_debouncer_mini::new_debouncer;
-use regex::Regex;
 use serde_json::json;
 use std::error::Error;
 use std::{path::Path, sync::mpsc, time::Duration};
@@ -122,15 +121,19 @@ async fn build_entity<'a>(
     output_dir: &Path,
 ) -> Result<Entity, Box<dyn Error>> {
     let md_str = read_to_string(input_dir.join(name)).await?;
-    let re = Regex::new(r"^(?P<date>\d{4}-\d{2}-\d{2})-(?P<title>[A-Za-z0-9\-]+)\.md$")?;
-    let caps = re
-        .captures(&name)
-        .ok_or(std::io::Error::new(std::io::ErrorKind::Other, "captures"))?;
-    let date_str = caps["date"].to_string();
-    let dt = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")?;
-    let (_, title, contents) = md_to_html(md_str.to_owned());
+    let (metadata, title, contents) = md_to_html(md_str.to_owned());
+    let date_str = metadata
+        .map(|m| m.date)
+        .flatten()
+        .map(|dt| dt.date)
+        .flatten()
+        .map(|d| d.to_string())
+        .unwrap_or(Utc::now().date_naive().format("%Y-%m-%d").to_string());
+    let created_at = NaiveDate::parse_from_str(date_str.as_str(), "%Y-%m-%d")
+        .unwrap()
+        .format("%b %d, %Y")
+        .to_string();
     let out_name = name.replace(".md", ".html");
-    let created_at = dt.format("%b %d, %Y").to_string();
     let out = h.render(
         "post",
         &json!(EntityArgs {
@@ -153,6 +156,7 @@ async fn build_entity<'a>(
 
     Ok(Entity {
         filename: out_name,
+        created_at_iso: date_str,
         created_at,
         title,
     })
@@ -172,8 +176,7 @@ pub async fn build_entities<'a>(
         entities: Vec::new(),
     };
     let r_dir = read_dir(&posts_input_dir).await?;
-    let mut post_entries = get_files_in_dir(r_dir).await?;
-    post_entries.sort_by_key(|(.., path)| path.to_owned());
+    let post_entries = get_files_in_dir(r_dir).await?;
     for (name, metadata, ..) in post_entries {
         if !metadata.is_file() {
             continue;
@@ -182,6 +185,10 @@ pub async fn build_entities<'a>(
         let post = build_entity(&h, &name, &posts_input_dir, &posts_output_dir).await?;
         entities_args.entities.insert(0, post)
     }
+
+    entities_args
+        .entities
+        .sort_by(|a, b| b.created_at_iso.to_owned().cmp(&a.created_at_iso.to_owned()));
 
     let out = h.render("posts", &json!(entities_args))?;
     write(posts_output_dir.join("index.html"), out).await?;
@@ -276,7 +283,8 @@ pub async fn run_build(
 
     let mut build_actions = page_names
         .into_iter()
-        .map(|name| build_page(&h, name, input_dir, output_dir).boxed()).collect::<Vec<_>>();
+        .map(|name| build_page(&h, name, input_dir, output_dir).boxed())
+        .collect::<Vec<_>>();
     build_actions.extend([
         build_index(&h, input_dir, output_dir).boxed(),
         build_entities(&h, &posts_input_dir, &posts_output_dir).boxed(),
