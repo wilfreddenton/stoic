@@ -1,7 +1,7 @@
 use crate::assets::{CSS_STR, JS_STR};
 use crate::templates::TemplateName;
-use crate::utils::{get_dir_paths, get_files_in_dir, md_to_html, read_template, remove_path};
 use crate::types::*;
+use crate::utils::{get_dir_paths, get_files_in_dir, md_to_html, read_template, remove_path};
 use chrono::prelude::*;
 use futures::future::{try_join, try_join4, try_join_all};
 use futures::FutureExt;
@@ -12,7 +12,7 @@ use notify_debouncer_mini::new_debouncer;
 use regex::Regex;
 use serde_json::json;
 use std::error::Error;
-use std::{path::Path, time::Duration, sync::mpsc};
+use std::{path::Path, sync::mpsc, time::Duration};
 use strum::IntoEnumIterator;
 use tokio::fs::{copy, create_dir, metadata, read_dir, read_to_string, write};
 
@@ -92,11 +92,11 @@ async fn build_index<'a>(
 
 async fn build_page<'a>(
     h: &Handlebars<'a>,
-    name: &str,
+    name: String,
     input_dir: &Path,
     output_dir: &Path,
 ) -> Result<(), Box<dyn Error>> {
-    let md_str = read_to_string(input_dir.join(name)).await?;
+    let md_str = read_to_string(input_dir.join(&name)).await?;
     let (_, title, contents) = md_to_html(md_str.to_owned());
     let out_name = name.replace(".md", ".html");
     let out = h.render(
@@ -112,24 +112,6 @@ async fn build_page<'a>(
     )?;
 
     write(output_dir.join(out_name), out).await?;
-    Ok(())
-}
-
-async fn build_pages<'a>(
-    h: &Handlebars<'a>,
-    pages_input_dir: &Path,
-    pages_output_dir: &Path,
-) -> Result<(), Box<dyn Error>> {
-    let re = Regex::new(r"^[A-Za-z0-9\-]+\.md$")?;
-    let r_dir = read_dir(&pages_input_dir).await?;
-    let page_entries = get_files_in_dir(r_dir).await?;
-    for (name, metadata, ..) in page_entries {
-        if !(metadata.is_file() && re.is_match(&name)) {
-            continue;
-        }
-
-        build_page(h, &name, &pages_input_dir, &pages_output_dir).await?;
-    }
     Ok(())
 }
 
@@ -247,7 +229,6 @@ pub async fn run_build(
     }
 
     let assets_input_dir = input_dir.join("assets");
-    let pages_input_dir = input_dir.join("pages");
     let posts_input_dir = input_dir.join("posts");
     let template_input_dir = input_dir.join("templates");
     let assets_output_dir = output_dir.join("assets");
@@ -280,12 +261,27 @@ pub async fn run_build(
         h.register_template_string(&name, template)?;
     }
 
-    try_join_all([
+    let reserved_filenames = vec!["README.md", "readme.md", "index.md"];
+    let input_r_dir = read_dir(input_dir).await?;
+    let input_entries = get_files_in_dir(input_r_dir).await?;
+    let mut page_names: Vec<String> = vec![];
+    for (name, metadata, _) in input_entries {
+        if metadata.is_file()
+            && name.ends_with(".md")
+            && !reserved_filenames.contains(&name.as_ref())
+        {
+            page_names.push(name);
+        }
+    }
+
+    let mut build_actions = page_names
+        .into_iter()
+        .map(|name| build_page(&h, name, input_dir, output_dir).boxed()).collect::<Vec<_>>();
+    build_actions.extend([
         build_index(&h, input_dir, output_dir).boxed(),
-        build_pages(&h, &pages_input_dir, output_dir).boxed(),
         build_entities(&h, &posts_input_dir, &posts_output_dir).boxed(),
-    ])
-    .await?;
+    ]);
+    try_join_all(build_actions).await?;
 
     println!("built in {} ms", (Utc::now() - start).num_milliseconds());
 
@@ -296,7 +292,9 @@ pub async fn run_watch(input_dir: &Path, output_dir: &Path) -> Result<(), Box<dy
     let (tx, rx) = mpsc::channel();
 
     let mut debouncer = new_debouncer(Duration::from_secs(1), None, tx)?;
-    debouncer.watcher().watch(input_dir, RecursiveMode::Recursive)?;
+    debouncer
+        .watcher()
+        .watch(input_dir, RecursiveMode::Recursive)?;
 
     println!("watching: {}", input_dir.display());
     println!("building: {}", output_dir.display());
@@ -305,7 +303,7 @@ pub async fn run_watch(input_dir: &Path, output_dir: &Path) -> Result<(), Box<dy
             Ok(_) => {
                 println!("change detected; building...");
                 run_build(input_dir, output_dir, false).await?
-            },
+            }
             Err(e) => panic!("{:?}", e),
         }
     }
