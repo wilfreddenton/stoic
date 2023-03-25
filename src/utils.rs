@@ -1,4 +1,5 @@
 use crate::templates::TemplateName;
+use crate::types::EntityMetadata;
 use pulldown_cmark::{html, Event, HeadingLevel, Options, Parser, Tag};
 use std::error::Error;
 use std::fs::Metadata;
@@ -60,7 +61,7 @@ pub async fn read_template(name: TemplateName, dir: &Path) -> Result<(String, St
 }
 
 // Pure Actions
-pub fn md_to_html(md_str: String) -> (String, String) {
+pub fn md_to_html(md_str: String) -> (Option<EntityMetadata>, String, String) {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_FOOTNOTES);
     options.insert(Options::ENABLE_HEADING_ATTRIBUTES);
@@ -68,6 +69,8 @@ pub fn md_to_html(md_str: String) -> (String, String) {
     let mut parser = Parser::new_ext(&md_str, options);
     let mut inside_header = false;
     let mut title = String::new();
+    let mut inside_metadata = false;
+    let mut metadata_str = String::new();
     for event in parser {
         match event {
             Event::Start(Tag::Heading(HeadingLevel::H1, _, _)) => inside_header = true,
@@ -77,12 +80,27 @@ pub fn md_to_html(md_str: String) -> (String, String) {
                     break;
                 }
             }
+            Event::Html(html_text) => {
+                if !inside_metadata {
+                    if html_text.to_string().trim() == "<!--metadata" {
+                        inside_metadata = true;
+                    }
+
+                    continue
+                }
+                if html_text.to_string().trim() == "-->" {
+                    inside_metadata = false;
+                    continue;
+                }
+                metadata_str.push_str(html_text.to_string().as_ref());
+            }
             _ => (),
         };
     }
 
+    let metadata: Option<EntityMetadata> = toml::from_str(metadata_str.as_ref()).ok();
     parser = Parser::new_ext(&md_str, options);
     let mut html_str = String::new();
     html::push_html(&mut html_str, parser);
-    (title, html_str)
+    (metadata, title, html_str)
 }

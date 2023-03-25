@@ -50,7 +50,7 @@ const POSTS_TEMPLATE: &str = r#"
 {{> nav}}
 <section>
   <ul id="posts-list">
-    {{#each posts}}
+    {{#each entities}}
     <li class="posts-list-item">
       <a href="posts/{{this.filename}}">
         <div class="posts-list-item-title">{{this.title}}</div>

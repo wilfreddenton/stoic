@@ -1,7 +1,14 @@
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
+use toml_datetime::Datetime;
+
+#[derive(Debug, Deserialize)]
+pub struct EntityMetadata {
+    pub title: Option<String>,
+    pub date: Option<Datetime>,
+}
 
 #[derive(Serialize)]
-pub struct Post {
+pub struct Entity {
     pub filename: String,
     pub title: String,
     pub created_at: String,
@@ -20,21 +27,14 @@ pub struct IndexArgs<'a> {
 }
 
 #[derive(Serialize)]
-pub struct PageArgs<'a> {
+pub struct EntitiesArgs<'a> {
     pub path: &'a [Breadcrumb<'a>],
     pub title: &'a str,
-    pub contents: &'a str,
+    pub entities: Vec<Entity>,
 }
 
 #[derive(Serialize)]
-pub struct PostsArgs<'a> {
-    pub path: &'a [Breadcrumb<'a>],
-    pub title: &'a str,
-    pub posts: Vec<Post>,
-}
-
-#[derive(Serialize)]
-pub struct PostArgs<'a> {
+pub struct EntityArgs<'a> {
     pub path: &'a [Breadcrumb<'a>],
     pub title: &'a str,
     pub contents: &'a str,

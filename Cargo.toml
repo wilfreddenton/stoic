@@ -23,4 +23,6 @@ serde_json = "1.0"
 strum = "0.24"
 strum_macros = "0.24"
 tokio = { version = "1", features = ["full"] }
+toml = "0.7"
+toml_datetime = "0.6"
 walkdir = "2"

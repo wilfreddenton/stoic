@@ -80,7 +80,7 @@ async fn build_index<'a>(
     output_dir: &Path,
 ) -> Result<(), Box<dyn Error>> {
     let md_str = read_to_string(input_dir.join("index.md")).await?;
-    let (title, contents) = md_to_html(md_str.to_owned());
+    let (_, title, contents) = md_to_html(md_str.to_owned());
     let test = &json!(IndexArgs {
         title: &title,
         contents: &contents,
@@ -97,11 +97,11 @@ async fn build_page<'a>(
     output_dir: &Path,
 ) -> Result<(), Box<dyn Error>> {
     let md_str = read_to_string(input_dir.join(name)).await?;
-    let (title, contents) = md_to_html(md_str.to_owned());
+    let (_, title, contents) = md_to_html(md_str.to_owned());
     let out_name = name.replace(".md", ".html");
     let out = h.render(
         "page",
-        &json!(PageArgs {
+        &json!(EntityArgs {
             path: &[Breadcrumb {
                 name: &title,
                 link: &out_name,
@@ -133,12 +133,12 @@ async fn build_pages<'a>(
     Ok(())
 }
 
-async fn build_post<'a>(
+async fn build_entity<'a>(
     h: &Handlebars<'a>,
     name: &str,
     input_dir: &Path,
     output_dir: &Path,
-) -> Result<Post, Box<dyn Error>> {
+) -> Result<Entity, Box<dyn Error>> {
     let md_str = read_to_string(input_dir.join(name)).await?;
     let re = Regex::new(r"^(?P<date>\d{4}-\d{2}-\d{2})-(?P<title>[A-Za-z0-9\-]+)\.md$")?;
     let caps = re
@@ -146,12 +146,12 @@ async fn build_post<'a>(
         .ok_or(std::io::Error::new(std::io::ErrorKind::Other, "captures"))?;
     let date_str = caps["date"].to_string();
     let dt = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")?;
-    let (title, contents) = md_to_html(md_str.to_owned());
+    let (_, title, contents) = md_to_html(md_str.to_owned());
     let out_name = name.replace(".md", ".html");
     let created_at = dt.format("%b %d, %Y").to_string();
     let out = h.render(
         "post",
-        &json!(PostArgs {
+        &json!(EntityArgs {
             path: &[
                 Breadcrumb {
                     name: "Posts",
@@ -169,25 +169,25 @@ async fn build_post<'a>(
 
     write(output_dir.join(&out_name), out).await?;
 
-    Ok(Post {
+    Ok(Entity {
         filename: out_name,
         created_at,
         title,
     })
 }
 
-pub async fn build_posts<'a>(
+pub async fn build_entities<'a>(
     h: &Handlebars<'a>,
     posts_input_dir: &Path,
     posts_output_dir: &Path,
 ) -> Result<(), Box<dyn Error>> {
-    let mut posts_args = PostsArgs {
+    let mut entities_args = EntitiesArgs {
         path: &[Breadcrumb {
             name: "Posts",
             link: "posts",
         }],
         title: "Posts",
-        posts: Vec::new(),
+        entities: Vec::new(),
     };
     let r_dir = read_dir(&posts_input_dir).await?;
     let mut post_entries = get_files_in_dir(r_dir).await?;
@@ -197,11 +197,11 @@ pub async fn build_posts<'a>(
             continue;
         }
 
-        let post = build_post(&h, &name, &posts_input_dir, &posts_output_dir).await?;
-        posts_args.posts.insert(0, post)
+        let post = build_entity(&h, &name, &posts_input_dir, &posts_output_dir).await?;
+        entities_args.entities.insert(0, post)
     }
 
-    let out = h.render("posts", &json!(posts_args))?;
+    let out = h.render("posts", &json!(entities_args))?;
     write(posts_output_dir.join("index.html"), out).await?;
     Ok(())
 }
@@ -283,7 +283,7 @@ pub async fn run_build(
     try_join_all([
         build_index(&h, input_dir, output_dir).boxed(),
         build_pages(&h, &pages_input_dir, output_dir).boxed(),
-        build_posts(&h, &posts_input_dir, &posts_output_dir).boxed(),
+        build_entities(&h, &posts_input_dir, &posts_output_dir).boxed(),
     ])
     .await?;
 
