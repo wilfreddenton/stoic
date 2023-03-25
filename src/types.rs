@@ -15,7 +15,7 @@ pub struct Entity {
     pub created_at: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct Breadcrumb<'a> {
     pub name: &'a str,
     pub link: &'a str,

@@ -13,6 +13,7 @@ chrono = "0.4"
 clap = { version = "4.1", features = ["derive"] }
 futures = "0.3"
 handlebars = "4.3"
+Inflector = "0.11"
 inquire = "0.6"
 notify = "5.1"
 notify-debouncer-mini = { version = "0.2", default-features = false }
