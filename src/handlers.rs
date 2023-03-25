@@ -313,15 +313,15 @@ pub async fn run_build(
 
     let mut build_actions = vec![build_index(&h, input_dir, output_dir).boxed()];
     build_actions.extend(
-        page_names
-            .iter()
-            .map(|name| build_page(&h, name.to_owned(), input_dir, output_dir).boxed())
-            .collect::<Vec<_>>(),
-    );
-    build_actions.extend(
         collection_names
             .iter()
             .map(|name| build_entities(&h, name, input_dir, output_dir).boxed())
+            .collect::<Vec<_>>(),
+    );
+    build_actions.extend(
+        page_names
+            .iter()
+            .map(|name| build_page(&h, name.to_owned(), input_dir, output_dir).boxed())
             .collect::<Vec<_>>(),
     );
     try_join_all(build_actions).await?;
