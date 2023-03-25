@@ -1,12 +1,6 @@
-pub mod assets;
-pub mod handlers;
-pub mod templates;
-pub mod utils;
-pub mod types;
-
-use crate::handlers::{run_build, run_new, run_watch};
 use clap::Parser;
 use std::{error::Error, path::Path};
+use stoic::handlers::{run_build, run_new, run_watch};
 
 #[derive(clap::Parser)]
 #[clap(version, about)]
@@ -32,7 +26,7 @@ enum Command {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let args = Args::parse();
     match args.command {
         Command::New { name } => run_new(Path::new(&name)).await,
@@ -40,6 +34,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             input_dir,
             output_dir,
         } => run_build(Path::new(&input_dir), Path::new(&output_dir), true).await,
-        Command::Watch {input_dir, output_dir} => run_watch(Path::new(&input_dir), Path::new(&output_dir)).await
+        Command::Watch {
+            input_dir,
+            output_dir,
+        } => run_watch(Path::new(&input_dir), Path::new(&output_dir)).await,
     }
 }

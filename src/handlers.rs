@@ -1,38 +1,36 @@
 use crate::assets::{CSS_STR, JS_STR};
 use crate::templates::TemplateName;
-use crate::utils::{get_dir_paths, get_files_in_dir, md_to_html, read_template, remove_path};
 use crate::types::*;
+use crate::utils::{get_dir_paths, get_entries_in_dir, md_to_html, read_template, remove_path};
 use chrono::prelude::*;
-use futures::future::{try_join, try_join4, try_join_all};
+use futures::future::{try_join3, try_join_all};
 use futures::FutureExt;
 use handlebars::Handlebars;
+use inflector::Inflector;
 use inquire::Confirm;
 use notify::RecursiveMode;
 use notify_debouncer_mini::new_debouncer;
-use regex::Regex;
 use serde_json::json;
 use std::error::Error;
-use std::{path::Path, time::Duration, sync::mpsc};
+use std::{path::Path, sync::mpsc, time::Duration};
 use strum::IntoEnumIterator;
 use tokio::fs::{copy, create_dir, metadata, read_dir, read_to_string, write};
 
-pub async fn run_new(blog_dir: &Path) -> Result<(), Box<dyn Error>> {
+pub async fn run_new(root_dir: &Path) -> Result<(), Box<dyn Error + Send + Sync>> {
     let start = Utc::now();
-    let assets_dir = blog_dir.join("assets");
-    let pages_dir = blog_dir.join("pages");
-    let posts_dir = blog_dir.join("posts");
-    let templates_dir = blog_dir.join("template");
-    let name = blog_dir
+    let assets_dir = root_dir.join("assets");
+    let posts_dir = root_dir.join("posts");
+    let templates_dir = root_dir.join("templates");
+    let name = root_dir
         .file_stem()
         .expect("Could not derive name from path")
         .to_string_lossy()
         .to_string();
     let date = Utc::now().format("%Y-%m-%d");
 
-    create_dir(blog_dir).await?;
-    try_join4(
+    create_dir(root_dir).await?;
+    try_join3(
         create_dir(&assets_dir),
-        create_dir(&pages_dir),
         create_dir(&posts_dir),
         create_dir(&templates_dir),
     )
@@ -49,9 +47,10 @@ pub async fn run_new(blog_dir: &Path) -> Result<(), Box<dyn Error>> {
 
     build_template_actions.extend([
         write(
-            blog_dir.join("index.md").to_path_buf(),
-            format!("# {name}\n"),
+            root_dir.join("index.md").to_path_buf(),
+            format!("# {}\n", name.to_title_case()),
         ),
+        write(root_dir.join("about.md"), "# About\n".to_owned()),
         write(
             assets_dir.join("style.css"),
             CSS_STR.to_string().trim_start().to_owned(),
@@ -60,10 +59,14 @@ pub async fn run_new(blog_dir: &Path) -> Result<(), Box<dyn Error>> {
             assets_dir.join("script.js"),
             JS_STR.to_string().trim_start().to_owned(),
         ),
-        write(pages_dir.join("about.md"), "# About\n".to_owned()),
         write(
             posts_dir.join(format!("{date}-hello-world.md")),
-            "# Hello, World!\n".to_owned(),
+            format!(r"<!--metadata
+date = {date}
+-->
+
+# Hello, World!
+").to_owned(),
         ),
     ]);
 
@@ -78,9 +81,9 @@ async fn build_index<'a>(
     h: &Handlebars<'a>,
     input_dir: &Path,
     output_dir: &Path,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     let md_str = read_to_string(input_dir.join("index.md")).await?;
-    let (title, contents) = md_to_html(md_str.to_owned());
+    let (_, title, contents) = md_to_html(md_str.to_owned());
     let test = &json!(IndexArgs {
         title: &title,
         contents: &contents,
@@ -92,16 +95,16 @@ async fn build_index<'a>(
 
 async fn build_page<'a>(
     h: &Handlebars<'a>,
-    name: &str,
+    name: String,
     input_dir: &Path,
     output_dir: &Path,
-) -> Result<(), Box<dyn Error>> {
-    let md_str = read_to_string(input_dir.join(name)).await?;
-    let (title, contents) = md_to_html(md_str.to_owned());
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let md_str = read_to_string(input_dir.join(&name)).await?;
+    let (_, title, contents) = md_to_html(md_str.to_owned());
     let out_name = name.replace(".md", ".html");
     let out = h.render(
         "page",
-        &json!(PageArgs {
+        &json!(EntityArgs {
             path: &[Breadcrumb {
                 name: &title,
                 link: &out_name,
@@ -115,53 +118,40 @@ async fn build_page<'a>(
     Ok(())
 }
 
-async fn build_pages<'a>(
-    h: &Handlebars<'a>,
-    pages_input_dir: &Path,
-    pages_output_dir: &Path,
-) -> Result<(), Box<dyn Error>> {
-    let re = Regex::new(r"^[A-Za-z0-9\-]+\.md$")?;
-    let r_dir = read_dir(&pages_input_dir).await?;
-    let page_entries = get_files_in_dir(r_dir).await?;
-    for (name, metadata, ..) in page_entries {
-        if !(metadata.is_file() && re.is_match(&name)) {
-            continue;
-        }
-
-        build_page(h, &name, &pages_input_dir, &pages_output_dir).await?;
-    }
-    Ok(())
-}
-
-async fn build_post<'a>(
+async fn build_entity<'a>(
     h: &Handlebars<'a>,
     name: &str,
+    collection_name: &str,
+    breadcrumbs: &'a [Breadcrumb<'a>],
     input_dir: &Path,
     output_dir: &Path,
-) -> Result<Post, Box<dyn Error>> {
+) -> Result<Entity, Box<dyn Error + Send + Sync>> {
     let md_str = read_to_string(input_dir.join(name)).await?;
-    let re = Regex::new(r"^(?P<date>\d{4}-\d{2}-\d{2})-(?P<title>[A-Za-z0-9\-]+)\.md$")?;
-    let caps = re
-        .captures(&name)
-        .ok_or(std::io::Error::new(std::io::ErrorKind::Other, "captures"))?;
-    let date_str = caps["date"].to_string();
-    let dt = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")?;
-    let (title, contents) = md_to_html(md_str.to_owned());
-    let out_name = name.replace(".md", ".html");
-    let created_at = dt.format("%b %d, %Y").to_string();
+    let (metadata, title, contents) = md_to_html(md_str.to_owned());
+    let date_str = metadata
+        .map(|m| m.date)
+        .flatten()
+        .map(|dt| dt.date)
+        .flatten()
+        .map(|d| d.to_string())
+        .unwrap_or(Utc::now().date_naive().format("%Y-%m-%d").to_string());
+    let created_at = NaiveDate::parse_from_str(date_str.as_str(), "%Y-%m-%d")
+        .unwrap()
+        .format("%b %d, %Y")
+        .to_string();
+    let out_name = &name.replace(".md", ".html");
+    let link = format!("{collection_name}/{out_name}");
+    let mut breadcrumbs_vec = breadcrumbs.to_vec();
+    breadcrumbs_vec.push(Breadcrumb {
+        name: &created_at,
+        link: &link,
+    });
     let out = h.render(
-        "post",
-        &json!(PostArgs {
-            path: &[
-                Breadcrumb {
-                    name: "Posts",
-                    link: "posts/",
-                },
-                Breadcrumb {
-                    name: &created_at,
-                    link: &format!("posts/{out_name}"),
-                }
-            ],
+        collection_name
+            .strip_suffix("s")
+            .unwrap_or(&collection_name),
+        &json!(EntityArgs {
+            path: &breadcrumbs_vec[..],
             title: &title,
             contents: &contents,
         }),
@@ -169,40 +159,58 @@ async fn build_post<'a>(
 
     write(output_dir.join(&out_name), out).await?;
 
-    Ok(Post {
-        filename: out_name,
+    Ok(Entity {
+        filename: out_name.to_owned(),
+        created_at_iso: date_str,
         created_at,
         title,
     })
 }
 
-pub async fn build_posts<'a>(
+pub async fn build_entities<'a>(
     h: &Handlebars<'a>,
-    posts_input_dir: &Path,
-    posts_output_dir: &Path,
-) -> Result<(), Box<dyn Error>> {
-    let mut posts_args = PostsArgs {
-        path: &[Breadcrumb {
-            name: "Posts",
-            link: "posts",
-        }],
-        title: "Posts",
-        posts: Vec::new(),
+    name: &str,
+    input_dir: &Path,
+    output_dir: &Path,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let title_case = name.to_title_case();
+    let breadcrumbs = &[Breadcrumb {
+        name: &title_case,
+        link: &name,
+    }];
+    let mut entities_args = EntitiesArgs {
+        path: breadcrumbs,
+        title: &title_case,
+        entities: Vec::new(),
     };
-    let r_dir = read_dir(&posts_input_dir).await?;
-    let mut post_entries = get_files_in_dir(r_dir).await?;
-    post_entries.sort_by_key(|(.., path)| path.to_owned());
-    for (name, metadata, ..) in post_entries {
-        if !metadata.is_file() {
-            continue;
-        }
+    let entities_input_dir = input_dir.join(&name);
+    let entities_output_dir = output_dir.join(&name);
+    let r_dir = read_dir(&entities_input_dir).await?;
+    let entries = get_entries_in_dir(r_dir).await?;
+    let mut entities = try_join_all(
+        entries
+            .iter()
+            .filter(|(filename, metadata, ..)| metadata.is_file() && filename.ends_with(".md"))
+            .map(|(filename, ..)| {
+                build_entity(
+                    &h,
+                    filename,
+                    name,
+                    breadcrumbs,
+                    &entities_input_dir,
+                    &entities_output_dir,
+                )
+            })
+            .collect::<Vec<_>>(),
+    )
+    .await?;
 
-        let post = build_post(&h, &name, &posts_input_dir, &posts_output_dir).await?;
-        posts_args.posts.insert(0, post)
-    }
+    entities.sort_by_key(|e| std::cmp::Reverse(e.created_at_iso.to_owned()));
 
-    let out = h.render("posts", &json!(posts_args))?;
-    write(posts_output_dir.join("index.html"), out).await?;
+    entities_args.entities = entities;
+
+    let out = h.render(&name, &json!(entities_args))?;
+    write(entities_output_dir.join("index.html"), out).await?;
     Ok(())
 }
 
@@ -210,8 +218,9 @@ pub async fn run_build(
     input_dir: &Path,
     output_dir: &Path,
     should_confirm: bool,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     let mut start = Utc::now();
+    metadata(&input_dir).await?;
     if let Ok(metadata) = metadata(&output_dir).await {
         if metadata.is_file() {
             return Err(format!("{} is a file", output_dir.display()).into());
@@ -232,7 +241,7 @@ pub async fn run_build(
         }
 
         let r_dir = read_dir(&output_dir).await?;
-        let output_entries = get_files_in_dir(r_dir).await?;
+        let output_entries = get_entries_in_dir(r_dir).await?;
         for (name, metadata, path) in output_entries {
             match name.as_str() {
                 ".git" => continue,
@@ -246,18 +255,33 @@ pub async fn run_build(
         create_dir(&output_dir).await?;
     }
 
-    let assets_input_dir = input_dir.join("assets");
-    let pages_input_dir = input_dir.join("pages");
-    let posts_input_dir = input_dir.join("posts");
-    let template_input_dir = input_dir.join("templates");
-    let assets_output_dir = output_dir.join("assets");
-    let posts_output_dir = output_dir.join("posts");
-    try_join(
-        create_dir(&posts_output_dir),
-        create_dir(&assets_output_dir),
-    )
-    .await?;
+    let reserved_filenames = vec!["README.md", "readme.md", "index.md"];
+    let reserved_dirnames = vec![".git", "assets", "templates"];
+    let input_r_dir = read_dir(input_dir).await?;
+    let input_entries = get_entries_in_dir(input_r_dir).await?;
+    let mut page_names: Vec<String> = vec![];
+    let mut collection_names: Vec<String> = vec![];
+    for (name, metadata, _) in input_entries {
+        if metadata.is_file() {
+            if name.ends_with(".md") && !reserved_filenames.contains(&name.as_str()) {
+                page_names.push(name);
+            }
+        } else {
+            if !reserved_dirnames.contains(&name.as_str()) {
+                collection_names.push(name);
+            }
+        }
+    }
 
+    let assets_output_dir = output_dir.join("assets");
+    let mut create_dir_actions = collection_names
+        .iter()
+        .map(|n| create_dir(output_dir.join(n)))
+        .collect::<Vec<_>>();
+    create_dir_actions.extend([create_dir(assets_output_dir.to_owned())]);
+    try_join_all(create_dir_actions).await?;
+
+    let assets_input_dir = input_dir.join("assets");
     let (dir_paths, file_paths) = get_dir_paths(&assets_input_dir)?;
     try_join_all(
         dir_paths
@@ -273,30 +297,50 @@ pub async fn run_build(
     }))
     .await?;
 
+    let templates_input_dir = input_dir.join("templates");
+    let templates_input_r_dir = read_dir(&templates_input_dir).await?;
+    let template_entries = get_entries_in_dir(templates_input_r_dir).await?;
+    let templates = try_join_all(
+        template_entries
+            .iter()
+            .map(|(n, ..)| read_template(n.to_string(), &templates_input_dir)),
+    )
+    .await?;
     let mut h = Handlebars::new();
-    let templates =
-        try_join_all(TemplateName::iter().map(|n| read_template(n, &template_input_dir))).await?;
     for (name, template) in templates {
         h.register_template_string(&name, template)?;
     }
 
-    try_join_all([
-        build_index(&h, input_dir, output_dir).boxed(),
-        build_pages(&h, &pages_input_dir, output_dir).boxed(),
-        build_posts(&h, &posts_input_dir, &posts_output_dir).boxed(),
-    ])
-    .await?;
+    let mut build_actions = vec![build_index(&h, input_dir, output_dir).boxed()];
+    build_actions.extend(
+        collection_names
+            .iter()
+            .map(|name| build_entities(&h, name, input_dir, output_dir).boxed())
+            .collect::<Vec<_>>(),
+    );
+    build_actions.extend(
+        page_names
+            .iter()
+            .map(|name| build_page(&h, name.to_owned(), input_dir, output_dir).boxed())
+            .collect::<Vec<_>>(),
+    );
+    try_join_all(build_actions).await?;
 
     println!("built in {} ms", (Utc::now() - start).num_milliseconds());
 
     Ok(())
 }
 
-pub async fn run_watch(input_dir: &Path, output_dir: &Path) -> Result<(), Box<dyn Error>> {
+pub async fn run_watch(
+    input_dir: &Path,
+    output_dir: &Path,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     let (tx, rx) = mpsc::channel();
 
     let mut debouncer = new_debouncer(Duration::from_secs(1), None, tx)?;
-    debouncer.watcher().watch(input_dir, RecursiveMode::Recursive)?;
+    debouncer
+        .watcher()
+        .watch(input_dir, RecursiveMode::Recursive)?;
 
     println!("watching: {}", input_dir.display());
     println!("building: {}", output_dir.display());
@@ -305,7 +349,7 @@ pub async fn run_watch(input_dir: &Path, output_dir: &Path) -> Result<(), Box<dy
             Ok(_) => {
                 println!("change detected; building...");
                 run_build(input_dir, output_dir, false).await?
-            },
+            }
             Err(e) => panic!("{:?}", e),
         }
     }
