@@ -1,9 +1,13 @@
 use crate::assets::{CSS_STR, JS_STR};
 use crate::templates::TemplateName;
 use crate::types::*;
-use crate::utils::{get_dir_paths, get_entries_in_dir, md_to_html, read_template, remove_path};
+use crate::utils::{
+    copy_file, get_entries_in_dir, get_files_in_dir_recursive, md_to_html, read_template,
+    remove_path,
+};
 use chrono::prelude::*;
 use futures::future::{try_join3, try_join_all};
+use futures::stream::FuturesUnordered;
 use futures::FutureExt;
 use handlebars::Handlebars;
 use inflector::Inflector;
@@ -12,9 +16,10 @@ use notify::RecursiveMode;
 use notify_debouncer_mini::new_debouncer;
 use serde_json::json;
 use std::error::Error;
+use std::io;
 use std::{path::Path, sync::mpsc, time::Duration};
 use strum::IntoEnumIterator;
-use tokio::fs::{copy, create_dir, metadata, read_dir, read_to_string, write};
+use tokio::fs::{create_dir, metadata, read_dir, read_to_string, write};
 
 pub async fn run_new(root_dir: &Path) -> Result<(), Box<dyn Error>> {
     let start = Utc::now();
@@ -61,12 +66,15 @@ pub async fn run_new(root_dir: &Path) -> Result<(), Box<dyn Error>> {
         ),
         write(
             posts_dir.join(format!("{date}-hello-world.md")),
-            format!(r"<!--metadata
+            format!(
+                r"<!--metadata
 date = {date}
 -->
 
 # Hello, World!
-").to_owned(),
+"
+            )
+            .to_owned(),
         ),
     ]);
 
@@ -81,14 +89,14 @@ async fn build_index<'a>(
     h: &Handlebars<'a>,
     input_dir: &Path,
     output_dir: &Path,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), io::Error> {
     let md_str = read_to_string(input_dir.join("index.md")).await?;
     let (_, title, contents) = md_to_html(md_str.to_owned());
     let test = &json!(IndexArgs {
         title: &title,
         contents: &contents,
     });
-    let out = h.render("index", test)?;
+    let out = h.render("index", test).unwrap(); // remove unwrap
     write(output_dir.join("index.html"), out).await?;
     Ok(())
 }
@@ -98,21 +106,23 @@ async fn build_page<'a>(
     name: String,
     input_dir: &Path,
     output_dir: &Path,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), io::Error> {
     let md_str = read_to_string(input_dir.join(&name)).await?;
     let (_, title, contents) = md_to_html(md_str.to_owned());
     let out_name = name.replace(".md", ".html");
-    let out = h.render(
-        "page",
-        &json!(EntityArgs {
-            path: &[Breadcrumb {
-                name: &title,
-                link: &out_name,
-            }],
-            title: &title,
-            contents: &contents
-        }),
-    )?;
+    let out = h
+        .render(
+            "page",
+            &json!(EntityArgs {
+                path: &[Breadcrumb {
+                    name: &title,
+                    link: &out_name,
+                }],
+                title: &title,
+                contents: &contents
+            }),
+        )
+        .unwrap(); // remove unwrap
 
     write(output_dir.join(out_name), out).await?;
     Ok(())
@@ -125,7 +135,7 @@ async fn build_entity<'a>(
     breadcrumbs: &'a [Breadcrumb<'a>],
     input_dir: &Path,
     output_dir: &Path,
-) -> Result<Entity, Box<dyn Error>> {
+) -> Result<Entity, io::Error> {
     let md_str = read_to_string(input_dir.join(name)).await?;
     let (metadata, title, contents) = md_to_html(md_str.to_owned());
     let date_str = metadata
@@ -146,16 +156,18 @@ async fn build_entity<'a>(
         name: &created_at,
         link: &link,
     });
-    let out = h.render(
-        collection_name
-            .strip_suffix("s")
-            .unwrap_or(&collection_name),
-        &json!(EntityArgs {
-            path: &breadcrumbs_vec[..],
-            title: &title,
-            contents: &contents,
-        }),
-    )?;
+    let out = h
+        .render(
+            collection_name
+                .strip_suffix("s")
+                .unwrap_or(&collection_name),
+            &json!(EntityArgs {
+                path: &breadcrumbs_vec[..],
+                title: &title,
+                contents: &contents,
+            }),
+        )
+        .unwrap(); // remove unwrap
 
     write(output_dir.join(&out_name), out).await?;
 
@@ -169,10 +181,10 @@ async fn build_entity<'a>(
 
 pub async fn build_entities<'a>(
     h: &Handlebars<'a>,
-    name: &str,
+    name: String,
     input_dir: &Path,
     output_dir: &Path,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), io::Error> {
     let title_case = name.to_title_case();
     let breadcrumbs = &[Breadcrumb {
         name: &title_case,
@@ -195,7 +207,7 @@ pub async fn build_entities<'a>(
                 build_entity(
                     &h,
                     filename,
-                    name,
+                    &name,
                     breadcrumbs,
                     &entities_input_dir,
                     &entities_output_dir,
@@ -209,7 +221,7 @@ pub async fn build_entities<'a>(
 
     entities_args.entities = entities;
 
-    let out = h.render(&name, &json!(entities_args))?;
+    let out = h.render(&name, &json!(entities_args)).unwrap(); // remove unwrap
     write(entities_output_dir.join("index.html"), out).await?;
     Ok(())
 }
@@ -220,7 +232,11 @@ pub async fn run_build(
     should_confirm: bool,
 ) -> Result<(), Box<dyn Error>> {
     let mut start = Utc::now();
+    
+    // check that input dir exists
     metadata(&input_dir).await?;
+
+    // confirm output dir overwrite if it exists
     if let Ok(metadata) = metadata(&output_dir).await {
         if metadata.is_file() {
             return Err(format!("{} is a file", output_dir.display()).into());
@@ -255,6 +271,7 @@ pub async fn run_build(
         create_dir(&output_dir).await?;
     }
 
+    // get pages and collections
     let reserved_filenames = vec!["README.md", "readme.md", "index.md"];
     let reserved_dirnames = vec![".git", "assets", "templates"];
     let input_r_dir = read_dir(input_dir).await?;
@@ -273,30 +290,20 @@ pub async fn run_build(
         }
     }
 
+    // create root level dirs assets and collections
     let assets_output_dir = output_dir.join("assets");
-    let mut create_dir_actions = collection_names
-        .iter()
-        .map(|n| create_dir(output_dir.join(n)))
-        .collect::<Vec<_>>();
-    create_dir_actions.extend([create_dir(assets_output_dir.to_owned())]);
-    try_join_all(create_dir_actions).await?;
+    let create_root_dir_actions = FuturesUnordered::new();
+    create_root_dir_actions.push(create_dir(assets_output_dir.to_owned()).boxed_local());
+    for name in collection_names.iter() {
+        create_root_dir_actions.push(create_dir(output_dir.join(name)).boxed_local());
+    }
+    try_join_all(create_root_dir_actions).await?;
 
+    // get asset file paths
     let assets_input_dir = input_dir.join("assets");
-    let (dir_paths, file_paths) = get_dir_paths(&assets_input_dir)?;
-    try_join_all(
-        dir_paths
-            .into_iter()
-            .map(|p| create_dir(assets_output_dir.join(p))),
-    )
-    .await?;
-    try_join_all(file_paths.into_iter().map(|p| {
-        copy(
-            assets_input_dir.join(p.to_owned()),
-            assets_output_dir.join(p.to_owned()),
-        )
-    }))
-    .await?;
+    let assets_file_paths = get_files_in_dir_recursive(&assets_input_dir)?;
 
+    // read and register templates
     let templates_input_dir = input_dir.join("templates");
     let templates_input_r_dir = read_dir(&templates_input_dir).await?;
     let template_entries = get_entries_in_dir(templates_input_r_dir).await?;
@@ -311,19 +318,28 @@ pub async fn run_build(
         h.register_template_string(&name, template)?;
     }
 
-    let mut build_actions = vec![build_index(&h, input_dir, output_dir).boxed_local()];
-    build_actions.extend(
-        collection_names
-            .iter()
-            .map(|name| build_entities(&h, name, input_dir, output_dir).boxed_local())
-            .collect::<Vec<_>>(),
-    );
-    build_actions.extend(
-        page_names
-            .iter()
-            .map(|name| build_page(&h, name.to_owned(), input_dir, output_dir).boxed_local())
-            .collect::<Vec<_>>(),
-    );
+    // build
+    let build_actions = FuturesUnordered::new();
+    // build index
+    build_actions.push(build_index(&h, input_dir, output_dir).boxed_local());
+    // build assets
+    for file_path in assets_file_paths {
+        build_actions.push(
+            copy_file(
+                assets_input_dir.join(&file_path),
+                assets_output_dir.join(file_path),
+            )
+            .boxed_local(),
+        );
+    }
+    // build collections
+    for name in collection_names {
+        build_actions.push(build_entities(&h, name, input_dir, output_dir).boxed_local());
+    }
+    // build pages
+    for name in page_names {
+        build_actions.push(build_page(&h, name, input_dir, output_dir).boxed_local())
+    }
     try_join_all(build_actions).await?;
 
     println!("built in {} ms", (Utc::now() - start).num_milliseconds());
@@ -331,10 +347,7 @@ pub async fn run_build(
     Ok(())
 }
 
-pub async fn run_watch(
-    input_dir: &Path,
-    output_dir: &Path,
-) -> Result<(), Box<dyn Error>> {
+pub async fn run_watch(input_dir: &Path, output_dir: &Path) -> Result<(), Box<dyn Error>> {
     let (tx, rx) = mpsc::channel();
 
     let mut debouncer = new_debouncer(Duration::from_secs(1), None, tx)?;
