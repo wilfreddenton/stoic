@@ -7,7 +7,7 @@ use tokio::fs::{read_to_string, remove_dir_all, remove_file, ReadDir};
 use walkdir::WalkDir;
 
 // IO Actions
-pub fn get_dir_paths(path: &PathBuf) -> Result<(Vec<PathBuf>, Vec<PathBuf>), Box<dyn Error + Send + Sync>> {
+pub fn get_dir_paths(path: &PathBuf) -> Result<(Vec<PathBuf>, Vec<PathBuf>), Box<dyn Error>> {
     let mut dir_paths = Vec::new();
     let mut file_paths = Vec::new();
     for entry in WalkDir::new(&path)
@@ -32,7 +32,7 @@ pub fn get_dir_paths(path: &PathBuf) -> Result<(Vec<PathBuf>, Vec<PathBuf>), Box
 
 pub async fn get_entries_in_dir(
     mut dir: ReadDir,
-) -> Result<Vec<(String, Metadata, PathBuf)>, Box<dyn Error + Send + Sync>> {
+) -> Result<Vec<(String, Metadata, PathBuf)>, Box<dyn Error>> {
     let mut entries = Vec::new();
     while let Some(entry) = dir.next_entry().await? {
         let metadata = entry.metadata().await?;
@@ -50,7 +50,7 @@ pub async fn remove_path(metadata: Metadata, path: PathBuf) -> Result<(), std::i
     }
 }
 
-pub async fn read_template(name: String, dir: &Path) -> Result<(String, String), Box<dyn Error + Send + Sync>> {
+pub async fn read_template(name: String, dir: &Path) -> Result<(String, String), Box<dyn Error>> {
     Ok((name.strip_suffix(".hbs").unwrap_or(&name).to_string(), read_to_string(dir.join(name))
         .await?
         .split("\n")

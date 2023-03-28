@@ -16,7 +16,7 @@ use std::{path::Path, sync::mpsc, time::Duration};
 use strum::IntoEnumIterator;
 use tokio::fs::{copy, create_dir, metadata, read_dir, read_to_string, write};
 
-pub async fn run_new(root_dir: &Path) -> Result<(), Box<dyn Error + Send + Sync>> {
+pub async fn run_new(root_dir: &Path) -> Result<(), Box<dyn Error>> {
     let start = Utc::now();
     let assets_dir = root_dir.join("assets");
     let posts_dir = root_dir.join("posts");
@@ -81,7 +81,7 @@ async fn build_index<'a>(
     h: &Handlebars<'a>,
     input_dir: &Path,
     output_dir: &Path,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+) -> Result<(), Box<dyn Error>> {
     let md_str = read_to_string(input_dir.join("index.md")).await?;
     let (_, title, contents) = md_to_html(md_str.to_owned());
     let test = &json!(IndexArgs {
@@ -98,7 +98,7 @@ async fn build_page<'a>(
     name: String,
     input_dir: &Path,
     output_dir: &Path,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+) -> Result<(), Box<dyn Error>> {
     let md_str = read_to_string(input_dir.join(&name)).await?;
     let (_, title, contents) = md_to_html(md_str.to_owned());
     let out_name = name.replace(".md", ".html");
@@ -125,7 +125,7 @@ async fn build_entity<'a>(
     breadcrumbs: &'a [Breadcrumb<'a>],
     input_dir: &Path,
     output_dir: &Path,
-) -> Result<Entity, Box<dyn Error + Send + Sync>> {
+) -> Result<Entity, Box<dyn Error>> {
     let md_str = read_to_string(input_dir.join(name)).await?;
     let (metadata, title, contents) = md_to_html(md_str.to_owned());
     let date_str = metadata
@@ -172,7 +172,7 @@ pub async fn build_entities<'a>(
     name: &str,
     input_dir: &Path,
     output_dir: &Path,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+) -> Result<(), Box<dyn Error>> {
     let title_case = name.to_title_case();
     let breadcrumbs = &[Breadcrumb {
         name: &title_case,
@@ -218,7 +218,7 @@ pub async fn run_build(
     input_dir: &Path,
     output_dir: &Path,
     should_confirm: bool,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+) -> Result<(), Box<dyn Error>> {
     let mut start = Utc::now();
     metadata(&input_dir).await?;
     if let Ok(metadata) = metadata(&output_dir).await {
@@ -311,17 +311,17 @@ pub async fn run_build(
         h.register_template_string(&name, template)?;
     }
 
-    let mut build_actions = vec![build_index(&h, input_dir, output_dir).boxed()];
+    let mut build_actions = vec![build_index(&h, input_dir, output_dir).boxed_local()];
     build_actions.extend(
         collection_names
             .iter()
-            .map(|name| build_entities(&h, name, input_dir, output_dir).boxed())
+            .map(|name| build_entities(&h, name, input_dir, output_dir).boxed_local())
             .collect::<Vec<_>>(),
     );
     build_actions.extend(
         page_names
             .iter()
-            .map(|name| build_page(&h, name.to_owned(), input_dir, output_dir).boxed())
+            .map(|name| build_page(&h, name.to_owned(), input_dir, output_dir).boxed_local())
             .collect::<Vec<_>>(),
     );
     try_join_all(build_actions).await?;
@@ -334,7 +334,7 @@ pub async fn run_build(
 pub async fn run_watch(
     input_dir: &Path,
     output_dir: &Path,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+) -> Result<(), Box<dyn Error>> {
     let (tx, rx) = mpsc::channel();
 
     let mut debouncer = new_debouncer(Duration::from_secs(1), None, tx)?;
