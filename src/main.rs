@@ -26,7 +26,7 @@ enum Command {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
+async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     match args.command {
         Command::New { name } => run_new(Path::new(&name)).await,
