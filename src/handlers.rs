@@ -41,44 +41,43 @@ pub async fn run_new(root_dir: &Path) -> Result<(), Box<dyn Error>> {
     )
     .await?;
 
-    let mut build_template_actions = TemplateName::iter()
-        .map(|n| {
+    try_join_all(
+        [
             write(
-                templates_dir.join(format!("{n}.hbs")),
-                n.template_str().trim_start().to_owned(),
-            )
-        })
-        .collect::<Vec<_>>();
-
-    build_template_actions.extend([
-        write(
-            root_dir.join("index.md"),
-            format!("# {}\n", name.to_title_case()),
-        ),
-        write(root_dir.join("about.md"), "# About\n".to_owned()),
-        write(
-            assets_dir.join("style.css"),
-            CSS_STR.to_string().trim_start().to_owned(),
-        ),
-        write(
-            assets_dir.join("script.js"),
-            JS_STR.to_string().trim_start().to_owned(),
-        ),
-        write(
-            posts_dir.join(format!("{date}-hello-world.md")),
-            format!(
-                r"<!--metadata
+                root_dir.join("index.md"),
+                format!("# {}\n", name.to_title_case()),
+            ),
+            write(root_dir.join("about.md"), "# About\n".to_owned()),
+            write(
+                assets_dir.join("style.css"),
+                CSS_STR.to_string().trim_start().to_owned(),
+            ),
+            write(
+                assets_dir.join("script.js"),
+                JS_STR.to_string().trim_start().to_owned(),
+            ),
+            write(
+                posts_dir.join(format!("{date}-hello-world.md")),
+                format!(
+                    r"<!--metadata
 date = {date}
 -->
 
 # Hello, World!
 "
+                )
+                .to_owned(),
+            ),
+        ]
+        .into_iter()
+        .chain(TemplateName::iter().map(|n| {
+            write(
+                templates_dir.join(format!("{n}.hbs")),
+                n.template_str().trim_start().to_owned(),
             )
-            .to_owned(),
-        ),
-    ]);
-
-    try_join_all(build_template_actions).await?;
+        })),
+    )
+    .await?;
 
     println!("built in {} ms", (Utc::now() - start).num_milliseconds());
 
@@ -188,11 +187,7 @@ pub async fn build_entities<'a>(
         name: &title_case,
         link: &name,
     }];
-    let mut entities_args = EntitiesArgs {
-        path: breadcrumbs,
-        title: &title_case,
-        entities: Vec::new(),
-    };
+
     let entities_input_dir = input_dir.join(&name);
     let entities_output_dir = output_dir.join(&name);
     let r_dir = read_dir(&entities_input_dir).await?;
@@ -217,9 +212,14 @@ pub async fn build_entities<'a>(
 
     entities.sort_by_key(|e| Reverse(e.created_at_iso.clone()));
 
-    entities_args.entities = entities;
-
-    let out = h.render(&name, &json!(entities_args))?;
+    let out = h.render(
+        &name,
+        &json!(EntitiesArgs {
+            path: breadcrumbs,
+            title: &title_case,
+            entities,
+        }),
+    )?;
     write(entities_output_dir.join("index.html"), out).await?;
     Ok(())
 }
@@ -278,28 +278,40 @@ pub async fn run_build(
     let reserved_dirnames = vec![".git", "assets", "templates"];
     let input_r_dir = read_dir(input_dir).await?;
     let input_entries = get_entries_in_dir(input_r_dir).await?;
-    let mut page_names: Vec<String> = vec![];
-    let mut collection_names: Vec<String> = vec![];
-    for (name, metadata, _) in input_entries {
-        if metadata.is_file() {
-            if name.ends_with(".md") && !reserved_filenames.contains(&name.as_str()) {
-                page_names.push(name);
+    let page_names = input_entries
+        .iter()
+        .filter_map(|(name, metadata, _)| {
+            if metadata.is_file()
+                && name.ends_with(".md")
+                && !reserved_filenames.contains(&name.as_str())
+            {
+                Some(name)
+            } else {
+                None
             }
-        } else {
-            if !reserved_dirnames.contains(&name.as_str()) {
-                collection_names.push(name);
+        })
+        .collect::<Vec<_>>();
+    let collection_names = input_entries
+        .iter()
+        .filter_map(|(name, metadata, _)| {
+            if metadata.is_dir() && !reserved_dirnames.contains(&name.as_str()) {
+                Some(name)
+            } else {
+                None
             }
-        }
-    }
+        })
+        .collect::<Vec<_>>();
 
     // create root level dirs assets and collections
     let assets_output_dir = output_dir.join("assets");
-    let create_root_dir_actions = FuturesUnordered::new();
-    create_root_dir_actions.push(create_dir(assets_output_dir.clone()).boxed_local());
-    for name in collection_names.iter() {
-        create_root_dir_actions.push(create_dir(output_dir.join(name)).boxed_local());
-    }
-    try_join_all(create_root_dir_actions).await?;
+    try_join_all(
+        [create_dir(assets_output_dir.clone())].into_iter().chain(
+            collection_names
+                .iter()
+                .map(|n| create_dir(output_dir.join(n))),
+        ),
+    )
+    .await?;
 
     // get asset file paths
     let assets_input_dir = input_dir.join("assets");
@@ -336,11 +348,12 @@ pub async fn run_build(
     }
     // build collections
     for name in collection_names {
-        build_actions.push(build_entities(&h, name, input_dir, output_dir).boxed_local());
+        build_actions
+            .push(build_entities(&h, name.to_string(), input_dir, output_dir).boxed_local());
     }
     // build pages
     for name in page_names {
-        build_actions.push(build_page(&h, name, input_dir, output_dir).boxed_local())
+        build_actions.push(build_page(&h, name.to_string(), input_dir, output_dir).boxed_local())
     }
     try_join_all(build_actions).await?;
 
