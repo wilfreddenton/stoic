@@ -256,15 +256,13 @@ pub async fn run_build(
 
         let r_dir = read_dir(&output_dir).await?;
         let output_entries = get_entries_in_dir(r_dir).await?;
-        for (name, metadata, path) in output_entries {
+        try_join_all(output_entries.into_iter().filter_map(|(name, metadata, path)| {
             match name.as_str() {
-                ".git" => continue,
-                "CNAME" => continue,
-                _ => (),
+                ".git" => None,
+                "CNAME" => None,
+                _ => Some(remove_path(metadata, path))
             }
-
-            remove_path(metadata, &path).await?;
-        }
+        })).await?;
     } else {
         create_dir(&output_dir).await?;
     }
@@ -299,7 +297,7 @@ pub async fn run_build(
 
     // get asset file paths
     let assets_input_dir = input_dir.join("assets");
-    let assets_file_paths = get_files_in_dir_recursive(&assets_input_dir)?;
+    let assets_file_paths = get_files_in_dir_recursive(&assets_input_dir);
 
     // read and register templates
     let templates_input_dir = input_dir.join("templates");

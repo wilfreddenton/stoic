@@ -8,24 +8,22 @@ use tokio::fs::{copy, create_dir_all, read_to_string, remove_dir_all, remove_fil
 use walkdir::WalkDir;
 
 // IO Actions
-pub fn get_files_in_dir_recursive(path: &Path) -> Result<Vec<PathBuf>, io::Error> {
-    let mut file_paths = Vec::new();
-    for entry in WalkDir::new(&path)
+pub fn get_files_in_dir_recursive(path: &Path) -> Vec<PathBuf> {
+    WalkDir::new(&path)
         .into_iter()
-        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let entry = e.ok()?;
+            let metadata = entry.metadata().ok()?;
+            if metadata.is_dir() {
+                return None;
+            }
+            let path = entry.path().strip_prefix(&path).ok()?;
+            if path == Path::new("") {
+                return None;
+            }
+            Some(path.to_path_buf())
+        })
         .collect::<Vec<_>>()
-    {
-        let metadata = entry.metadata()?;
-        let path = entry.path().strip_prefix(&path).unwrap().to_path_buf();
-        if path.to_str().unwrap() == "" {
-            continue;
-        }
-        if metadata.is_file() {
-            file_paths.push(path);
-        }
-    }
-
-    Ok(file_paths)
 }
 
 pub async fn get_entries_in_dir(
@@ -40,7 +38,7 @@ pub async fn get_entries_in_dir(
     Ok(entries)
 }
 
-pub async fn remove_path(metadata: Metadata, path: &Path) -> Result<(), io::Error> {
+pub async fn remove_path(metadata: Metadata, path: PathBuf) -> Result<(), io::Error> {
     if metadata.is_file() {
         remove_file(path).await
     } else {
