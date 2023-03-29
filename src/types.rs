@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use toml_datetime::Datetime;
 
 #[derive(Debug, Deserialize)]

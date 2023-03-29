@@ -16,7 +16,7 @@ mod tests {
 
     #[test]
     fn md_to_html_works() {
-        let (metadata, title, contents) = md_to_html(TEST_MD.to_string());
+        let (metadata, title, contents) = md_to_html(TEST_MD);
         assert!(matches!(
             metadata,
             Some(EntityMetadata {
@@ -33,6 +33,9 @@ mod tests {
             }) if title == "Title"
         ));
         assert_eq!(title, "Title");
-        assert_eq!(contents, "<!--metadata\ndate = 2023-03-24\ntitle = \"Title\"\n-->\n<h1>Title</h1>\n");
+        assert_eq!(
+            contents,
+            "<!--metadata\ndate = 2023-03-24\ntitle = \"Title\"\n-->\n<h1>Title</h1>\n"
+        );
     }
 }
