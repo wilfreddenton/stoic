@@ -14,13 +14,9 @@ pub fn get_files_in_dir_recursive(path: &Path) -> Vec<PathBuf> {
         .filter_map(|e| {
             let entry = e.ok()?;
             let metadata = entry.metadata().ok()?;
-            if metadata.is_dir() {
-                return None;
-            }
+            if metadata.is_dir() { return None }
             let path = entry.path().strip_prefix(&path).ok()?;
-            if path == Path::new("") {
-                return None;
-            }
+            if path == Path::new("") { return None }
             Some(path.to_path_buf())
         })
         .collect::<Vec<_>>()

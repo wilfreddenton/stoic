@@ -247,20 +247,19 @@ pub async fn run_build(
             .with_default(false)
             .with_help_message("All contents will be overwritten except .git/")
             .prompt()?;
-            if !ans {
-                return Ok(());
-            }
+            if !ans { return Ok(()) };
 
             start = Utc::now();
         }
 
         let r_dir = read_dir(&output_dir).await?;
         let output_entries = get_entries_in_dir(r_dir).await?;
+        let reserved_output_filenames = vec![".git", "CNAME"];
         try_join_all(output_entries.into_iter().filter_map(|(name, metadata, path)| {
-            match name.as_str() {
-                ".git" => None,
-                "CNAME" => None,
-                _ => Some(remove_path(metadata, path))
+            if reserved_output_filenames.contains(&name.as_str()) {
+                None
+            } else {
+                Some(remove_path(metadata, path))
             }
         })).await?;
     } else {
