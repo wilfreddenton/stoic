@@ -16,8 +16,8 @@ use notify::RecursiveMode;
 use notify_debouncer_mini::new_debouncer;
 use serde_json::json;
 use std::error::Error;
-use std::io;
 use std::{path::Path, sync::mpsc, time::Duration};
+use std::cmp::Reverse;
 use strum::IntoEnumIterator;
 use tokio::fs::{create_dir, metadata, read_dir, read_to_string, write};
 
@@ -44,7 +44,7 @@ pub async fn run_new(root_dir: &Path) -> Result<(), Box<dyn Error>> {
     let mut build_template_actions = TemplateName::iter()
         .map(|n| {
             write(
-                templates_dir.join(format!("{n}.hbs")).to_path_buf(),
+                templates_dir.join(format!("{n}.hbs")),
                 n.template_str().trim_start().to_owned(),
             )
         })
@@ -52,7 +52,7 @@ pub async fn run_new(root_dir: &Path) -> Result<(), Box<dyn Error>> {
 
     build_template_actions.extend([
         write(
-            root_dir.join("index.md").to_path_buf(),
+            root_dir.join("index.md"),
             format!("# {}\n", name.to_title_case()),
         ),
         write(root_dir.join("about.md"), "# About\n".to_owned()),
@@ -89,14 +89,14 @@ async fn build_index<'a>(
     h: &Handlebars<'a>,
     input_dir: &Path,
     output_dir: &Path,
-) -> Result<(), io::Error> {
+) -> Result<(), Box<dyn Error>> {
     let md_str = read_to_string(input_dir.join("index.md")).await?;
-    let (_, title, contents) = md_to_html(md_str.to_owned());
+    let (_, title, contents) = md_to_html(&md_str);
     let test = &json!(IndexArgs {
         title: &title,
         contents: &contents,
     });
-    let out = h.render("index", test).unwrap(); // remove unwrap
+    let out = h.render("index", test)?;
     write(output_dir.join("index.html"), out).await?;
     Ok(())
 }
@@ -106,23 +106,21 @@ async fn build_page<'a>(
     name: String,
     input_dir: &Path,
     output_dir: &Path,
-) -> Result<(), io::Error> {
+) -> Result<(), Box<dyn Error>> {
     let md_str = read_to_string(input_dir.join(&name)).await?;
-    let (_, title, contents) = md_to_html(md_str.to_owned());
+    let (_, title, contents) = md_to_html(&md_str);
     let out_name = name.replace(".md", ".html");
-    let out = h
-        .render(
-            "page",
-            &json!(EntityArgs {
-                path: &[Breadcrumb {
-                    name: &title,
-                    link: &out_name,
-                }],
-                title: &title,
-                contents: &contents
-            }),
-        )
-        .unwrap(); // remove unwrap
+    let out = h.render(
+        "page",
+        &json!(EntityArgs {
+            path: &[Breadcrumb {
+                name: &title,
+                link: &out_name,
+            }],
+            title: &title,
+            contents: &contents
+        }),
+    )?;
 
     write(output_dir.join(out_name), out).await?;
     Ok(())
@@ -135,9 +133,9 @@ async fn build_entity<'a>(
     breadcrumbs: &'a [Breadcrumb<'a>],
     input_dir: &Path,
     output_dir: &Path,
-) -> Result<Entity, io::Error> {
+) -> Result<Entity, Box<dyn Error>> {
     let md_str = read_to_string(input_dir.join(name)).await?;
-    let (metadata, title, contents) = md_to_html(md_str.to_owned());
+    let (metadata, title, contents) = md_to_html(&md_str);
     let date_str = metadata
         .map(|m| m.date)
         .flatten()
@@ -149,30 +147,26 @@ async fn build_entity<'a>(
         .unwrap()
         .format("%b %d, %Y")
         .to_string();
-    let out_name = &name.replace(".md", ".html");
+    let out_name = name.replace(".md", ".html");
     let link = format!("{collection_name}/{out_name}");
-    let mut breadcrumbs_vec = breadcrumbs.to_vec();
-    breadcrumbs_vec.push(Breadcrumb {
-        name: &created_at,
-        link: &link,
-    });
-    let out = h
-        .render(
-            collection_name
-                .strip_suffix("s")
-                .unwrap_or(&collection_name),
-            &json!(EntityArgs {
-                path: &breadcrumbs_vec[..],
-                title: &title,
-                contents: &contents,
-            }),
-        )
-        .unwrap(); // remove unwrap
+    let out = h.render(
+        collection_name
+            .strip_suffix("s")
+            .unwrap_or(&collection_name),
+        &json!(EntityArgs {
+            path: &[breadcrumbs, &[Breadcrumb {
+                    name: &created_at,
+                    link: &link,
+                }]].concat(),
+            title: &title,
+            contents: &contents,
+        }),
+    )?;
 
     write(output_dir.join(&out_name), out).await?;
 
     Ok(Entity {
-        filename: out_name.to_owned(),
+        filename: out_name,
         created_at_iso: date_str,
         created_at,
         title,
@@ -184,7 +178,7 @@ pub async fn build_entities<'a>(
     name: String,
     input_dir: &Path,
     output_dir: &Path,
-) -> Result<(), io::Error> {
+) -> Result<(), Box<dyn Error>> {
     let title_case = name.to_title_case();
     let breadcrumbs = &[Breadcrumb {
         name: &title_case,
@@ -217,11 +211,11 @@ pub async fn build_entities<'a>(
     )
     .await?;
 
-    entities.sort_by_key(|e| std::cmp::Reverse(e.created_at_iso.to_owned()));
+    entities.sort_by_key(|e| Reverse(e.created_at_iso.clone()));
 
     entities_args.entities = entities;
 
-    let out = h.render(&name, &json!(entities_args)).unwrap(); // remove unwrap
+    let out = h.render(&name, &json!(entities_args))?;
     write(entities_output_dir.join("index.html"), out).await?;
     Ok(())
 }
@@ -232,7 +226,7 @@ pub async fn run_build(
     should_confirm: bool,
 ) -> Result<(), Box<dyn Error>> {
     let mut start = Utc::now();
-    
+
     // check that input dir exists
     metadata(&input_dir).await?;
 
@@ -265,7 +259,7 @@ pub async fn run_build(
                 _ => (),
             }
 
-            remove_path(metadata, path).await?;
+            remove_path(metadata, &path).await?;
         }
     } else {
         create_dir(&output_dir).await?;
@@ -293,7 +287,7 @@ pub async fn run_build(
     // create root level dirs assets and collections
     let assets_output_dir = output_dir.join("assets");
     let create_root_dir_actions = FuturesUnordered::new();
-    create_root_dir_actions.push(create_dir(assets_output_dir.to_owned()).boxed_local());
+    create_root_dir_actions.push(create_dir(assets_output_dir.clone()).boxed_local());
     for name in collection_names.iter() {
         create_root_dir_actions.push(create_dir(output_dir.join(name)).boxed_local());
     }

@@ -1,5 +1,6 @@
 use crate::types::EntityMetadata;
 use pulldown_cmark::{html, Event, HeadingLevel, Options, Parser, Tag};
+use std::error::Error;
 use std::fs::Metadata;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -7,7 +8,7 @@ use tokio::fs::{copy, create_dir_all, read_to_string, remove_dir_all, remove_fil
 use walkdir::WalkDir;
 
 // IO Actions
-pub fn get_files_in_dir_recursive(path: &PathBuf) -> Result<Vec<PathBuf>, io::Error> {
+pub fn get_files_in_dir_recursive(path: &Path) -> Result<Vec<PathBuf>, io::Error> {
     let mut file_paths = Vec::new();
     for entry in WalkDir::new(&path)
         .into_iter()
@@ -39,7 +40,7 @@ pub async fn get_entries_in_dir(
     Ok(entries)
 }
 
-pub async fn remove_path(metadata: Metadata, path: PathBuf) -> Result<(), io::Error> {
+pub async fn remove_path(metadata: Metadata, path: &Path) -> Result<(), io::Error> {
     if metadata.is_file() {
         remove_file(path).await
     } else {
@@ -59,14 +60,14 @@ pub async fn read_template(name: String, dir: &Path) -> Result<(String, String),
     ))
 }
 
-pub async fn copy_file(input_path: PathBuf, output_path: PathBuf) -> Result<(), io::Error> {
-    create_dir_all(&output_path.parent().unwrap()).await?;
+pub async fn copy_file(input_path: PathBuf, output_path: PathBuf) -> Result<(), Box<dyn Error>> {
+    create_dir_all(output_path.parent().unwrap()).await?;
     copy(input_path, output_path).await?;
     Ok(())
 }
 
 // Pure Actions
-pub fn md_to_html(md_str: String) -> (Option<EntityMetadata>, String, String) {
+pub fn md_to_html(md_str: &str) -> (Option<EntityMetadata>, String, String) {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_FOOTNOTES);
     options.insert(Options::ENABLE_HEADING_ATTRIBUTES);

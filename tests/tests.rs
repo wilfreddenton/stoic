@@ -16,7 +16,7 @@ mod tests {
 
     #[test]
     fn md_to_html_works() {
-        let (metadata, title, contents) = md_to_html(TEST_MD.to_string());
+        let (metadata, title, contents) = md_to_html(TEST_MD);
         assert!(matches!(
             metadata,
             Some(EntityMetadata {
