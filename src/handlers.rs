@@ -15,9 +15,9 @@ use inquire::Confirm;
 use notify::RecursiveMode;
 use notify_debouncer_mini::new_debouncer;
 use serde_json::json;
+use std::cmp::Reverse;
 use std::error::Error;
 use std::{path::Path, sync::mpsc, time::Duration};
-use std::cmp::Reverse;
 use strum::IntoEnumIterator;
 use tokio::fs::{create_dir, metadata, read_dir, read_to_string, write};
 
@@ -154,10 +154,14 @@ async fn build_entity<'a>(
             .strip_suffix("s")
             .unwrap_or(&collection_name),
         &json!(EntityArgs {
-            path: &[breadcrumbs, &[Breadcrumb {
+            path: &[
+                breadcrumbs,
+                &[Breadcrumb {
                     name: &created_at,
                     link: &link,
-                }]].concat(),
+                }]
+            ]
+            .concat(),
             title: &title,
             contents: &contents,
         }),
