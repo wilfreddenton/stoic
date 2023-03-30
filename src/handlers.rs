@@ -20,6 +20,8 @@ use std::error::Error;
 use std::{path::Path, sync::mpsc, time::Duration};
 use strum::IntoEnumIterator;
 use tokio::fs::{create_dir, metadata, read_dir, read_to_string, write};
+use tower_http::services::ServeDir;
+use tower_livereload::LiveReloadLayer;
 
 pub async fn run_new(root_dir: &Path) -> Result<(), Box<dyn Error>> {
     let start = Utc::now();
@@ -363,23 +365,38 @@ pub async fn run_build(
 }
 
 pub async fn run_watch(input_dir: &Path, output_dir: &Path) -> Result<(), Box<dyn Error>> {
-    let (tx, rx) = mpsc::channel();
+    println!("watching: {}", input_dir.display());
+    println!("building: {}", output_dir.display());
+    run_build(input_dir, output_dir, false).await?;
 
-    let mut debouncer = new_debouncer(Duration::from_secs(1), None, tx)?;
+    let livereload = LiveReloadLayer::new();
+    let reloader = livereload.reloader();
+    let output_dir_copy = output_dir.to_path_buf();
+    tokio::spawn(async move {
+        let app = axum::Router::new()
+            .nest_service("/", ServeDir::new(output_dir_copy))
+            .layer(livereload);
+        let _ = axum::Server::bind(&"0.0.0.0:3030".parse().unwrap())
+            .serve(app.into_make_service())
+            .await;
+        panic!("unexpected server exit");
+    });
+    println!("serving: 0.0.0.0:3030");
+
+    let (tx, rx) = mpsc::channel();
+    let mut debouncer = new_debouncer(Duration::from_millis(250), None, tx)?;
     debouncer
         .watcher()
         .watch(input_dir, RecursiveMode::Recursive)?;
 
-    println!("watching: {}", input_dir.display());
-    println!("building: {}", output_dir.display());
-
-    run_build(input_dir, output_dir, false).await?;
     while let Ok(res) = rx.recv() {
         match res {
             Ok(_) => {
                 println!("change detected; building...");
                 if let Err(e) = run_build(input_dir, output_dir, false).await {
                     println!("{}", e);
+                } else {
+                    reloader.reload();
                 }
             }
             Err(e) => panic!("{:?}", e),
