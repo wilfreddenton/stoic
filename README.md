@@ -60,6 +60,9 @@ stoic watch blog dist
 
 tells `stoic` to watch the `blog/` for changes and rebuild the blog automatically.
 
+It will run a static web server @ `0.0.0.0:3030`.
+After each rebuild your browser should automatically reload.
+
 ### Collections
 
 The site created by the `new` command above contains a single collection: `posts`.
