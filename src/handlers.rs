@@ -376,7 +376,9 @@ pub async fn run_watch(input_dir: &Path, output_dir: &Path) -> Result<(), Box<dy
         match res {
             Ok(_) => {
                 println!("change detected; building...");
-                run_build(input_dir, output_dir, false).await?
+                if let Err(e) = run_build(input_dir, output_dir, false).await {
+                    println!("{}", e);
+                }
             }
             Err(e) => panic!("{:?}", e),
         }
