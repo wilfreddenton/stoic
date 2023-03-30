@@ -372,6 +372,8 @@ pub async fn run_watch(input_dir: &Path, output_dir: &Path) -> Result<(), Box<dy
 
     println!("watching: {}", input_dir.display());
     println!("building: {}", output_dir.display());
+
+    run_build(input_dir, output_dir, false).await?;
     while let Ok(res) = rx.recv() {
         match res {
             Ok(_) => {
