@@ -1362,7 +1362,7 @@ dependencies = [
 
 [[package]]
 name = "stoic"
-version = "0.3.3"
+version = "0.4.1"
 dependencies = [
  "Inflector",
  "axum",

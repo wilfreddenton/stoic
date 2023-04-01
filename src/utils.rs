@@ -5,7 +5,7 @@ use std::fs::Metadata;
 use std::io;
 use std::path::{Path, PathBuf};
 use tokio::fs::{
-    create_dir_all, read, read_dir, read_to_string, remove_dir_all, remove_file, write, 
+    copy, create_dir_all, read_dir, read_to_string, remove_dir_all, remove_file, File,
 };
 use walkdir::WalkDir;
 
@@ -63,9 +63,9 @@ pub async fn read_template(name: String, dir: &Path) -> Result<(String, String),
 
 pub async fn copy_file(input_path: PathBuf, output_path: PathBuf) -> Result<()> {
     create_dir_all(output_path.parent().unwrap()).await?;
-    // cannot use `copy` because of this isse: https://github.com/notify-rs/notify/issues/465
-    let contents = read(input_path).await?;
-    write(output_path, contents).await?;
+    // cannot rely on copy-on-write due to this issue: https://github.com/notify-rs/notify/issues/465
+    File::create(&output_path).await?;
+    copy(input_path, output_path).await?;
     Ok(())
 }
 
