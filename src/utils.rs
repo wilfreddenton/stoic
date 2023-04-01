@@ -1,10 +1,12 @@
 use crate::types::EntityMetadata;
+use color_eyre::eyre::Result;
 use pulldown_cmark::{html, Event, HeadingLevel, Options, Parser, Tag};
-use std::error::Error;
 use std::fs::Metadata;
 use std::io;
 use std::path::{Path, PathBuf};
-use tokio::fs::{create_dir_all, read_to_string, remove_dir_all, remove_file, ReadDir, read, write};
+use tokio::fs::{
+    create_dir_all, read, read_dir, read_to_string, remove_dir_all, remove_file, write, 
+};
 use walkdir::WalkDir;
 
 // IO Actions
@@ -27,8 +29,9 @@ pub fn get_files_in_dir_recursive(path: &Path) -> Vec<PathBuf> {
 }
 
 pub async fn get_entries_in_dir(
-    mut dir: ReadDir,
+    path: &Path,
 ) -> Result<Vec<(String, Metadata, PathBuf)>, io::Error> {
+    let mut dir = read_dir(path).await?;
     let mut entries = Vec::new();
     while let Some(entry) = dir.next_entry().await? {
         let metadata = entry.metadata().await?;
@@ -58,7 +61,7 @@ pub async fn read_template(name: String, dir: &Path) -> Result<(String, String),
     ))
 }
 
-pub async fn copy_file(input_path: PathBuf, output_path: PathBuf) -> Result<(), Box<dyn Error>> {
+pub async fn copy_file(input_path: PathBuf, output_path: PathBuf) -> Result<()> {
     create_dir_all(output_path.parent().unwrap()).await?;
     // cannot use `copy` because of this isse: https://github.com/notify-rs/notify/issues/465
     let contents = read(input_path).await?;

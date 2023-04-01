@@ -1,5 +1,6 @@
 use clap::Parser;
-use std::{error::Error, path::Path};
+use color_eyre::eyre::Result;
+use std::path::Path;
 use stoic::handlers::{run_build, run_new, run_watch};
 
 #[derive(clap::Parser)]
@@ -26,7 +27,11 @@ enum Command {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> Result<()> {
+    color_eyre::config::HookBuilder::default()
+        .display_env_section(false)
+        .install()?;
+
     let args = Args::parse();
     match args.command {
         Command::New { name } => run_new(Path::new(&name)).await,
