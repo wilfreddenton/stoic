@@ -18,6 +18,7 @@ use inquire::Confirm;
 use notify::RecursiveMode;
 use notify_debouncer_mini::new_debouncer;
 use serde_json::json;
+use superconsole::SuperConsole;
 use std::cmp::Reverse;
 use std::{path::Path, sync::mpsc, time::Duration};
 use strum::IntoEnumIterator;
@@ -254,7 +255,7 @@ pub async fn build_entities<'a>(
     Ok(())
 }
 
-pub async fn run_build(input_dir: &Path, output_dir: &Path, should_confirm: bool) -> Result<()> {
+pub async fn run_build(console: &mut SuperConsole, input_dir: &Path, output_dir: &Path, should_confirm: bool) -> Result<()> {
     let mut start = Utc::now();
 
     // check that input dir exists
@@ -310,6 +311,7 @@ pub async fn run_build(input_dir: &Path, output_dir: &Path, should_confirm: bool
         })?;
     }
 
+    console.render(&superconsole::state!()).unwrap();
     // get pages and collections
     let reserved_filenames = vec!["README.md", "readme.md"];
     let reserved_dirnames = vec![".git", "assets", "templates"];
@@ -395,15 +397,16 @@ pub async fn run_build(input_dir: &Path, output_dir: &Path, should_confirm: bool
     }
     try_join_all(build_actions).await?;
 
-    println!("built in {} ms", (Utc::now() - start).num_milliseconds());
+    let elapsed = (Utc::now() - start).num_milliseconds();
+    console.render(&superconsole::state!(&elapsed)).unwrap();
 
     Ok(())
 }
 
-pub async fn run_watch(input_dir: &Path, output_dir: &Path) -> Result<()> {
-    println!("watching: {}", input_dir.display());
-    println!("building: {}", output_dir.display());
-    run_build(input_dir, output_dir, false).await?;
+pub async fn run_watch(console: &mut SuperConsole, input_dir: &Path, output_dir: &Path) -> Result<()> {
+    // println!("watching: {}", input_dir.display());
+    // println!("building: {}", output_dir.display());
+    run_build(console, input_dir, output_dir, false).await?;
 
     let livereload = LiveReloadLayer::new();
     let reloader = livereload.reloader();
@@ -417,7 +420,7 @@ pub async fn run_watch(input_dir: &Path, output_dir: &Path) -> Result<()> {
             .await;
         panic!("unexpected server exit");
     });
-    println!("serving: 0.0.0.0:3030");
+    // println!("serving: 0.0.0.0:3030");
 
     let (tx, rx) = mpsc::channel();
     let mut debouncer = new_debouncer(Duration::from_millis(250), None, tx)?;
@@ -428,9 +431,9 @@ pub async fn run_watch(input_dir: &Path, output_dir: &Path) -> Result<()> {
     while let Ok(res) = rx.recv() {
         match res {
             Ok(_) => {
-                println!("change detected; building...");
-                if let Err(e) = run_build(input_dir, output_dir, false).await {
-                    eprintln!("{}", e);
+                // println!("change detected; building...");
+                if let Err(report) = run_build(console, input_dir, output_dir, false).await {
+                    console.render(&superconsole::state!(&report)).unwrap();
                 } else {
                     reloader.reload();
                 }
