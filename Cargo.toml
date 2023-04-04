@@ -1,6 +1,6 @@
 [package]
 name = "stoic"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2021"
 authors = ["Wilfred Denton <wilfred@hey.com>"]
 readme = "README.md"
@@ -24,6 +24,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 strum = "0.24"
 strum_macros = "0.24"
+superconsole = "0.1.0"
 thiserror = "1"
 tokio = { version = "1", features = ["full"] }
 toml = "0.7"
@@ -31,3 +32,4 @@ toml_datetime = "0.6"
 tower-livereload = "0.7"
 tower-http = { version = "0.4", features = ["fs"] }
 walkdir = "2"
+anyhow = "1.0.70"

@@ -1,4 +1,5 @@
 pub mod assets;
+pub mod console;
 pub mod errors;
 pub mod handlers;
 pub mod templates;

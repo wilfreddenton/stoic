@@ -1,4 +1,5 @@
 use crate::assets::{CSS_STR, JS_STR};
+use crate::console::ConsoleHandle;
 use crate::errors::{IOError, RenderError};
 use crate::templates::TemplateName;
 use crate::types::*;
@@ -25,7 +26,7 @@ use tokio::fs::{create_dir, metadata, read_to_string, write};
 use tower_http::services::ServeDir;
 use tower_livereload::LiveReloadLayer;
 
-pub async fn run_new(root_dir: &Path) -> Result<()> {
+pub async fn run_new(console: &mut ConsoleHandle, root_dir: &Path) -> Result<()> {
     let start = Utc::now();
     let assets_dir = root_dir.join("assets");
     let posts_dir = root_dir.join("posts");
@@ -83,7 +84,7 @@ date = {date}
     )
     .await?;
 
-    println!("built in {} ms", (Utc::now() - start).num_milliseconds());
+    console.log_elapsed((Utc::now() - start).num_milliseconds())?;
 
     Ok(())
 }
@@ -254,7 +255,7 @@ pub async fn build_entities<'a>(
     Ok(())
 }
 
-pub async fn run_build(input_dir: &Path, output_dir: &Path, should_confirm: bool) -> Result<()> {
+pub async fn run_build(console: &mut ConsoleHandle, input_dir: &Path, output_dir: &Path, should_confirm: bool) -> Result<()> {
     let mut start = Utc::now();
 
     // check that input dir exists
@@ -309,6 +310,8 @@ pub async fn run_build(input_dir: &Path, output_dir: &Path, should_confirm: bool
             path: output_dir.into(),
         })?;
     }
+
+    console.log("Building...")?;
 
     // get pages and collections
     let reserved_filenames = vec!["README.md", "readme.md"];
@@ -395,29 +398,28 @@ pub async fn run_build(input_dir: &Path, output_dir: &Path, should_confirm: bool
     }
     try_join_all(build_actions).await?;
 
-    println!("built in {} ms", (Utc::now() - start).num_milliseconds());
+    console.log_elapsed((Utc::now() - start).num_milliseconds())?;
 
     Ok(())
 }
 
-pub async fn run_watch(input_dir: &Path, output_dir: &Path) -> Result<()> {
-    println!("watching: {}", input_dir.display());
-    println!("building: {}", output_dir.display());
-    run_build(input_dir, output_dir, false).await?;
+pub async fn run_watch(console: &mut ConsoleHandle, input_dir: &Path, output_dir: &Path) -> Result<()> {
+    run_build(console, input_dir, output_dir, false).await?;
 
     let livereload = LiveReloadLayer::new();
     let reloader = livereload.reloader();
     let output_dir_copy = output_dir.to_path_buf();
+    let address = "0.0.0.0:3030";
     tokio::spawn(async move {
         let app = axum::Router::new()
             .nest_service("/", ServeDir::new(output_dir_copy))
             .layer(livereload);
-        let _ = axum::Server::bind(&"0.0.0.0:3030".parse().unwrap())
+        let _ = axum::Server::bind(&address.parse().unwrap())
             .serve(app.into_make_service())
             .await;
-        panic!("unexpected server exit");
+        panic!("Unexpected server exit");
     });
-    println!("serving: 0.0.0.0:3030");
+    console.set_address(address)?;
 
     let (tx, rx) = mpsc::channel();
     let mut debouncer = new_debouncer(Duration::from_millis(250), None, tx)?;
@@ -428,9 +430,8 @@ pub async fn run_watch(input_dir: &Path, output_dir: &Path) -> Result<()> {
     while let Ok(res) = rx.recv() {
         match res {
             Ok(_) => {
-                println!("change detected; building...");
-                if let Err(e) = run_build(input_dir, output_dir, false).await {
-                    eprintln!("{}", e);
+                if let Err(report) = run_build(console, input_dir, output_dir, false).await {
+                    console.log_report(report)?;
                 } else {
                     reloader.reload();
                 }
