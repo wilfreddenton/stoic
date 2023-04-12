@@ -5,7 +5,8 @@ use toml_datetime::{Date, Datetime};
 const TEST_MD: &str = r#"
 <!--metadata
 date = 2023-03-24
-title = "Title"
+shortname = "title"
+slug = " hey there "
 -->
 # Title
 "#;
@@ -20,7 +21,8 @@ mod tests {
         assert!(matches!(
             metadata,
             Some(EntityMetadata {
-                title: Some(title),
+                shortname: Some(shortname),
+                slug: Some(slug),
                 date: Some(Datetime {
                     date: Some(Date {
                         year: 2023,
@@ -30,12 +32,18 @@ mod tests {
                     time: None,
                     offset: None
                 }),
-            }) if title == "Title"
+            }) if shortname == "title" && slug == " hey there "
         ));
         assert_eq!(title, "Title");
         assert_eq!(
             contents,
-            "<!--metadata\ndate = 2023-03-24\ntitle = \"Title\"\n-->\n<h1>Title</h1>\n"
+            r#"<!--metadata
+date = 2023-03-24
+shortname = "title"
+slug = " hey there "
+-->
+<h1>Title</h1>
+"#
         );
     }
 }

@@ -3,7 +3,8 @@ use toml_datetime::Datetime;
 
 #[derive(Debug, Deserialize)]
 pub struct EntityMetadata {
-    pub title: Option<String>,
+    pub slug: Option<String>,
+    pub shortname: Option<String>,
     pub date: Option<Datetime>,
 }
 

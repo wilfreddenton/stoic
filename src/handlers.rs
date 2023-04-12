@@ -146,6 +146,7 @@ async fn build_entity<'a>(
         .wrap_err(IOError::Read { path: path.clone() })?;
     let (metadata, title, contents) = md_to_html(&md_str);
     let date_str = metadata
+        .as_ref()
         .map(|m| m.date)
         .flatten()
         .map(|dt| dt.date)
@@ -156,8 +157,18 @@ async fn build_entity<'a>(
         .unwrap_or(Utc::now().date_naive())
         .format("%b %d, %Y")
         .to_string();
-    let out_name = name.replace(".md", ".html");
-    let link = format!("{collection_name}/{out_name}");
+    let shortname = metadata
+        .as_ref()
+        .map(|m| m.shortname.clone())
+        .flatten()
+        .unwrap_or(created_at.clone());
+    let slug = metadata
+        .as_ref()
+        .map(|m| m.slug.clone())
+        .flatten()
+        .map(|slug| format!("{}.html", slug.trim().replace(" ", "_")))
+        .unwrap_or(name.replace(".md", ".html"));
+    let link = format!("{collection_name}/{slug}");
     let template_name = collection_name
         .strip_suffix("s")
         .unwrap_or(&collection_name);
@@ -168,7 +179,7 @@ async fn build_entity<'a>(
                 path: &[
                     breadcrumbs,
                     &[Breadcrumb {
-                        name: &created_at,
+                        name: &shortname,
                         link: &link,
                     }]
                 ]
@@ -182,12 +193,12 @@ async fn build_entity<'a>(
             template_name: template_name.to_string(),
         })?;
 
-    write(output_dir.join(&out_name), out)
+    write(output_dir.join(&slug), out)
         .await
         .wrap_err(IOError::Create { path })?;
 
     Ok(Entity {
-        filename: out_name,
+        filename: slug,
         created_at_iso: date_str,
         created_at,
         title,
@@ -255,7 +266,12 @@ pub async fn build_entities<'a>(
     Ok(())
 }
 
-pub async fn run_build(console: &mut ConsoleHandle, input_dir: &Path, output_dir: &Path, should_confirm: bool) -> Result<()> {
+pub async fn run_build(
+    console: &mut ConsoleHandle,
+    input_dir: &Path,
+    output_dir: &Path,
+    should_confirm: bool,
+) -> Result<()> {
     let mut start = Utc::now();
 
     // check that input dir exists
@@ -403,7 +419,11 @@ pub async fn run_build(console: &mut ConsoleHandle, input_dir: &Path, output_dir
     Ok(())
 }
 
-pub async fn run_watch(console: &mut ConsoleHandle, input_dir: &Path, output_dir: &Path) -> Result<()> {
+pub async fn run_watch(
+    console: &mut ConsoleHandle,
+    input_dir: &Path,
+    output_dir: &Path,
+) -> Result<()> {
     run_build(console, input_dir, output_dir, false).await?;
 
     let livereload = LiveReloadLayer::new();

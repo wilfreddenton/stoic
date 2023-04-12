@@ -86,11 +86,19 @@ Markdown items in collection folders should contain a metadata section at the to
 ```html
 <!--metadata
 date = 2023-03-25
+shortname = "Foo Bar"
+slug = "foo_bar
 -->
 ```
 
-Currently only a date in the `YYYY-MM-DD` format is supported.
+`date` is a date in the `YYYY-MM-DD` format.
 The date should exist in all collection items as it is used for sorting.
+
+`shorname` is the label used for the entity in the breadcrumbs.
+If it is not provided then the date will be used.
+
+`slug` is a name for the output file.
+If you have an input file `foo.md` but want the output file to be `foo_bar.html` instead of the default `foo.html`, set the slug to `foo_bar`.
 
 ## Examples
 
