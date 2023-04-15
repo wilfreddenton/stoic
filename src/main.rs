@@ -1,8 +1,8 @@
 use clap::Parser;
 use color_eyre::eyre::Result;
 use std::path::Path;
-use stoic::handlers::{run_build, run_new, run_watch};
 use stoic::console::ConsoleHandle;
+use stoic::handlers::{run_build, run_new, run_watch};
 
 #[derive(clap::Parser)]
 #[clap(version, about)]

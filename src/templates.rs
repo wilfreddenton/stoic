@@ -6,7 +6,7 @@ const BASE_TEMPLATE: &str = r#"
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>{{title}}</title>
+    <title>{{#if head_title}}{{head_title}}{{else}}{{title}}{{/if}}</title>
     <base href="/">
     <link rel="stylesheet" href="assets/style.css">
     <script type="text/javascript" src="assets/script.js" async defer></script>

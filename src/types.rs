@@ -6,6 +6,7 @@ pub struct EntityMetadata {
     pub slug: Option<String>,
     pub shortname: Option<String>,
     pub date: Option<Datetime>,
+    pub head_title: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -23,12 +24,6 @@ pub struct Breadcrumb<'a> {
 }
 
 #[derive(Serialize)]
-pub struct IndexArgs<'a> {
-    pub title: &'a str,
-    pub contents: &'a str,
-}
-
-#[derive(Serialize)]
 pub struct EntitiesArgs<'a> {
     pub path: &'a [Breadcrumb<'a>],
     pub title: &'a str,
@@ -39,5 +34,6 @@ pub struct EntitiesArgs<'a> {
 pub struct EntityArgs<'a> {
     pub path: &'a [Breadcrumb<'a>],
     pub title: &'a str,
+    pub head_title: &'a str,
     pub contents: &'a str,
 }

@@ -116,6 +116,7 @@ async fn build_page<'a>(
                     link: &out_name,
                 }],
                 title: &title,
+                head_title: &title,
                 contents: &contents
             }),
         )
@@ -168,6 +169,11 @@ async fn build_entity<'a>(
         .flatten()
         .map(|slug| format!("{}.html", slug.trim().replace(" ", "_")))
         .unwrap_or(name.replace(".md", ".html"));
+    let head_title = metadata
+        .as_ref()
+        .map(|e| e.head_title.clone())
+        .flatten()
+        .unwrap_or(title.clone());
     let link = format!("{collection_name}/{slug}");
     let template_name = collection_name
         .strip_suffix("s")
@@ -185,6 +191,7 @@ async fn build_entity<'a>(
                 ]
                 .concat(),
                 title: &title,
+                head_title: &head_title,
                 contents: &contents,
             }),
         )
