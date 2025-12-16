@@ -1,7 +1,9 @@
 use color_eyre::{eyre::eyre, eyre::Report, Result};
-use superconsole::{style::Stylize, Component, Line, SuperConsole};
+use superconsole::{
+    style::Color, Component, Dimensions, DrawMode, Line, Lines, Span, SuperConsole,
+};
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ConsoleState {
     pub report: Option<Report>,
     pub elapsed: Option<i64>,
@@ -9,49 +11,51 @@ pub struct ConsoleState {
     pub address: Option<String>,
 }
 
-#[derive(Debug)]
-pub struct Console;
+/// A temporary view component that wraps the state for rendering.
+struct ConsoleView<'a> {
+    state: &'a ConsoleState,
+}
 
-impl Component for Console {
-    fn draw_unchecked(
-        &self,
-        state: &superconsole::State,
-        _dimensions: superconsole::Dimensions,
-        _mode: superconsole::DrawMode,
-    ) -> anyhow::Result<superconsole::Lines> {
-        let mut lines = vec![];
-        if let Ok(c_state) = state.get::<ConsoleState>() {
-            if let Some(address) = &c_state.address {
-                lines.push(Line(vec![format!("Serving @ {address}").try_into()?]));
-            }
+impl<'a> Component for ConsoleView<'a> {
+    // The method is still 'draw_unchecked', not 'draw'
+    fn draw_unchecked(&self, _dimensions: Dimensions, _mode: DrawMode) -> anyhow::Result<Lines> {
+        let mut lines = Lines::new();
 
-            if let Some(report) = &c_state.report {
-                lines.push(Line(vec![
-                    "".to_string().dark_red().try_into()?,
-                    "Build failed".try_into()?,
-                ]));
-                lines.push(Line(vec!["Error:".try_into()?]));
-                for (i, e) in report.chain().enumerate() {
-                    lines.push(Line(vec![
-                        format!("    {i}: ").try_into()?,
-                        e.to_string().dark_red().try_into()?,
-                    ]));
-                }
-            }
-
-            if let Some(elapsed) = &c_state.elapsed {
-                lines.push(Line(vec![
-                    "".to_string().dark_green().try_into()?,
-                    format!("Built in {elapsed} ms").try_into()?,
-                ]));
-            }
-
-            if let Some(message) = &c_state.message {
-                lines.push(Line(vec![message.to_string().try_into()?]));
-            }
-        } else {
-            panic!("Could not parse console state");
+        if let Some(address) = &self.state.address {
+            lines.push(Line::from_iter(vec![Span::new_unstyled(format!(
+                "Serving @ {address}"
+            ))?]));
         }
+
+        if let Some(report) = &self.state.report {
+            // Span::new_colored is the cleanest way to add color in v0.2+
+            // to avoid signature confusion with new_styled.
+            lines.push(Line::from_iter(vec![Span::new_colored(
+                "Build failed",
+                Color::DarkRed,
+            )?]));
+
+            lines.push(Line::from_iter(vec![Span::new_unstyled("Error:")?]));
+
+            for (i, e) in report.chain().enumerate() {
+                lines.push(Line::from_iter(vec![
+                    Span::new_unstyled(format!("    {i}: "))?,
+                    Span::new_colored(&e.to_string(), Color::DarkRed)?,
+                ]));
+            }
+        }
+
+        if let Some(elapsed) = &self.state.elapsed {
+            lines.push(Line::from_iter(vec![Span::new_colored(
+                &format!("Built in {elapsed} ms"),
+                Color::DarkGreen,
+            )?]));
+        }
+
+        if let Some(message) = &self.state.message {
+            lines.push(Line::from_iter(vec![Span::new_unstyled(message)?]));
+        }
+
         Ok(lines)
     }
 }
@@ -63,24 +67,17 @@ pub struct ConsoleHandle {
 
 impl ConsoleHandle {
     pub fn new() -> Result<ConsoleHandle> {
-        let console = SuperConsole::new(Box::new(Console {}))
-            .ok_or(eyre!("Could not initialize superconsole"))?;
+        let console = SuperConsole::new().ok_or(eyre!("Could not initialize superconsole"))?;
+
         Ok(ConsoleHandle {
             console,
-            state: ConsoleState {
-                report: None,
-                elapsed: None,
-                message: None,
-                address: None,
-            },
+            state: ConsoleState::default(),
         })
     }
 
     fn render(&mut self) -> Result<()> {
-        Ok(self
-            .console
-            .render(&superconsole::state!(&self.state))
-            .map_err(|e| eyre!(Box::new(e)))?)
+        let view = ConsoleView { state: &self.state };
+        self.console.render(&view).map_err(|e| eyre!(e))
     }
 
     pub fn log_report(&mut self, report: Report) -> Result<()> {
@@ -106,6 +103,7 @@ impl ConsoleHandle {
 
     pub fn set_address(&mut self, address: &str) -> Result<()> {
         self.state.address = Some(address.to_string());
-        Ok(self.render()?)
+        self.render()?;
+        Ok(())
     }
 }

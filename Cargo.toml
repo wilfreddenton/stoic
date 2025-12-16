@@ -1,6 +1,6 @@
 [package]
 name = "stoic"
-version = "0.5.2"
+version = "0.6.0"
 edition = "2021"
 authors = ["Wilfred Denton <wilfred@hey.com>"]
 readme = "README.md"
@@ -9,27 +9,27 @@ license = "MIT"
 description = "a simple static blog generator"
 
 [dependencies]
-axum = "0.6"
+axum = "0.8"
 chrono = "0.4"
 clap = { version = "4.1", features = ["derive"] }
-color-eyre = { version = "0.5", default-features = false }
+color-eyre = { version = "0.6", default-features = false }
 futures = "0.3"
-handlebars = "4.3"
-Inflector = "0.11"
-inquire = "0.6"
-notify = "5.1"
-notify-debouncer-mini = { version = "0.2", default-features = false }
-pulldown-cmark = { version = "0.9", default-features = false }
+handlebars = "6.3"
+inquire = "0.9"
+notify = "8.2"
+pulldown-cmark = "0.13"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-strum = "0.24"
-strum_macros = "0.24"
-superconsole = "0.1.0"
-thiserror = "1"
+strum = "0.27"
+strum_macros = "0.27"
+superconsole = "0.2.0"
+thiserror = "2"
 tokio = { version = "1", features = ["full"] }
-toml = "0.7"
-toml_datetime = "0.6"
-tower-livereload = "0.7"
-tower-http = { version = "0.4", features = ["fs"] }
+toml = "0.9"
+toml_datetime = "0.7"
+tower-livereload = "0.10"
+tower-http = { version = "0.6", features = ["fs"] }
 walkdir = "2"
-anyhow = "1.0.70"
+anyhow = "1"
+heck = "0.5.0"
+notify-debouncer-full = "0.6.0"

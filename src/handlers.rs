@@ -14,15 +14,16 @@ use futures::future::{try_join3, try_join_all};
 use futures::stream::FuturesUnordered;
 use futures::FutureExt;
 use handlebars::Handlebars;
-use inflector::Inflector;
+use heck::ToTitleCase;
 use inquire::Confirm;
-use notify::RecursiveMode;
-use notify_debouncer_mini::new_debouncer;
+use notify::{EventKind, RecursiveMode};
+use notify_debouncer_full::new_debouncer;
 use serde_json::json;
 use std::cmp::Reverse;
 use std::{path::Path, sync::mpsc, time::Duration};
 use strum::IntoEnumIterator;
 use tokio::fs::{create_dir, metadata, read_to_string, write};
+use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
 use tower_livereload::LiveReloadLayer;
 
@@ -98,7 +99,7 @@ async fn build_page<'a>(
     let path = input_dir.join(&name);
     let md_str = read_to_string(&path)
         .await
-        .wrap_err(IOError::Read { path: path.into() })?;
+        .wrap_err(IOError::Read { path })?;
     let (_, title, contents) = md_to_html(&md_str);
     let out_name = name.replace(".md", ".html");
     let name_no_ext = name.strip_suffix(".md").unwrap_or(&name);
@@ -148,10 +149,8 @@ async fn build_entity<'a>(
     let (metadata, title, contents) = md_to_html(&md_str);
     let date_str = metadata
         .as_ref()
-        .map(|m| m.date)
-        .flatten()
-        .map(|dt| dt.date)
-        .flatten()
+        .and_then(|m| m.date)
+        .and_then(|dt| dt.date)
         .map(|d| d.to_string())
         .unwrap_or(Utc::now().date_naive().format("%Y-%m-%d").to_string());
     let created_at = NaiveDate::parse_from_str(date_str.as_str(), "%Y-%m-%d")
@@ -160,24 +159,19 @@ async fn build_entity<'a>(
         .to_string();
     let shortname = metadata
         .as_ref()
-        .map(|m| m.shortname.clone())
-        .flatten()
+        .and_then(|m| m.shortname.clone())
         .unwrap_or(created_at.clone());
     let slug = metadata
         .as_ref()
-        .map(|m| m.slug.clone())
-        .flatten()
+        .and_then(|m| m.slug.clone())
         .map(|slug| format!("{}.html", slug.trim().replace(" ", "_")))
         .unwrap_or(name.replace(".md", ".html"));
     let head_title = metadata
         .as_ref()
-        .map(|e| e.head_title.clone())
-        .flatten()
+        .and_then(|e| e.head_title.clone())
         .unwrap_or(title.clone());
     let link = format!("{collection_name}/{slug}");
-    let template_name = collection_name
-        .strip_suffix("s")
-        .unwrap_or(&collection_name);
+    let template_name = collection_name.strip_suffix("s").unwrap_or(collection_name);
     let out = h
         .render(
             template_name,
@@ -237,7 +231,7 @@ pub async fn build_entities<'a>(
             .filter(|(filename, metadata, ..)| metadata.is_file() && filename.ends_with(".md"))
             .map(|(filename, ..)| {
                 build_entity(
-                    &h,
+                    h,
                     filename,
                     &name,
                     breadcrumbs,
@@ -306,12 +300,12 @@ pub async fn run_build(
             start = Utc::now();
         }
 
-        let output_entries = get_entries_in_dir(&output_dir)
+        let output_entries = get_entries_in_dir(output_dir)
             .await
             .wrap_err(IOError::Read {
                 path: output_dir.into(),
             })?;
-        let reserved_output_filenames = vec![".git", "CNAME"];
+        let reserved_output_filenames = [".git", "CNAME"];
         try_join_all(
             output_entries
                 .into_iter()
@@ -337,8 +331,8 @@ pub async fn run_build(
     console.log("Building...")?;
 
     // get pages and collections
-    let reserved_filenames = vec!["README.md", "readme.md"];
-    let reserved_dirnames = vec![".git", "assets", "templates"];
+    let reserved_filenames = ["README.md", "readme.md"];
+    let reserved_dirnames = [".git", "assets", "templates"];
     let input_entries = get_entries_in_dir(input_dir)
         .await
         .wrap_err(IOError::Read {
@@ -384,7 +378,7 @@ pub async fn run_build(
         get_entries_in_dir(&templates_input_dir)
             .await
             .wrap_err(IOError::Read {
-                path: templates_input_dir.clone().into(),
+                path: templates_input_dir.clone(),
             })?;
     let templates = try_join_all(
         template_entries
@@ -437,30 +431,35 @@ pub async fn run_watch(
     let reloader = livereload.reloader();
     let output_dir_copy = output_dir.to_path_buf();
     let address = "0.0.0.0:3030";
+
     tokio::spawn(async move {
         let app = axum::Router::new()
-            .nest_service("/", ServeDir::new(output_dir_copy))
+            .fallback_service(ServeDir::new(output_dir_copy))
             .layer(livereload);
-        let _ = axum::Server::bind(&address.parse().unwrap())
-            .serve(app.into_make_service())
-            .await;
+        let listener = TcpListener::bind(address).await.unwrap();
+        axum::serve(listener, app).await.unwrap();
         panic!("Unexpected server exit");
     });
     console.set_address(address)?;
 
     let (tx, rx) = mpsc::channel();
     let mut debouncer = new_debouncer(Duration::from_millis(250), None, tx)?;
-    debouncer
-        .watcher()
-        .watch(input_dir, RecursiveMode::Recursive)?;
+    debouncer.watch(input_dir, RecursiveMode::Recursive)?;
 
     while let Ok(res) = rx.recv() {
         match res {
-            Ok(_) => {
-                if let Err(report) = run_build(console, input_dir, output_dir, false).await {
-                    console.log_report(report)?;
-                } else {
-                    reloader.reload();
+            Ok(events) => {
+                if events.iter().any(|event| {
+                    matches!(
+                        event.kind,
+                        EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
+                    )
+                }) {
+                    if let Err(report) = run_build(console, input_dir, output_dir, false).await {
+                        console.log_report(report)?;
+                    } else {
+                        reloader.reload();
+                    }
                 }
             }
             Err(e) => panic!("{:?}", e),
