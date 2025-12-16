@@ -11,7 +11,7 @@ use walkdir::WalkDir;
 
 // IO Actions
 pub fn get_files_in_dir_recursive(path: &Path) -> Vec<PathBuf> {
-    WalkDir::new(&path)
+    WalkDir::new(path)
         .into_iter()
         .filter_map(|e| {
             let entry = e.ok()?;
@@ -19,7 +19,7 @@ pub fn get_files_in_dir_recursive(path: &Path) -> Vec<PathBuf> {
             if metadata.is_dir() {
                 return None;
             }
-            let path = entry.path().strip_prefix(&path).ok()?;
+            let path = entry.path().strip_prefix(path).ok()?;
             if path == Path::new("") {
                 return None;
             }
@@ -75,14 +75,17 @@ pub fn md_to_html(md_str: &str) -> (Option<EntityMetadata>, String, String) {
     options.insert(Options::ENABLE_FOOTNOTES);
     options.insert(Options::ENABLE_HEADING_ATTRIBUTES);
     options.insert(Options::ENABLE_STRIKETHROUGH);
-    let mut parser = Parser::new_ext(&md_str, options);
+    let mut parser = Parser::new_ext(md_str, options);
     let mut inside_header = false;
     let mut title = String::new();
     let mut inside_metadata = false;
     let mut metadata_str = String::new();
     for event in parser {
         match event {
-            Event::Start(Tag::Heading(HeadingLevel::H1, _, _)) => inside_header = true,
+            Event::Start(Tag::Heading {
+                level: HeadingLevel::H1,
+                ..
+            }) => inside_header = true,
             Event::Text(text) => {
                 if inside_header {
                     title = text.to_string();
@@ -108,7 +111,7 @@ pub fn md_to_html(md_str: &str) -> (Option<EntityMetadata>, String, String) {
     }
 
     let metadata: Option<EntityMetadata> = toml::from_str(metadata_str.as_ref()).ok();
-    parser = Parser::new_ext(&md_str, options);
+    parser = Parser::new_ext(md_str, options);
     let mut html_str = String::new();
     html::push_html(&mut html_str, parser);
     (metadata, title, html_str)
