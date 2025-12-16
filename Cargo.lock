@@ -598,10 +598,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "fastrand"
-version = "2.3.0"
+name = "file-id"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
+checksum = "e1fc6a637b6dc58414714eddd9170ff187ecb0933d4c7024d1abbd23a3cc26e9"
+dependencies = [
+ "windows-sys 0.60.2",
+]
 
 [[package]]
 name = "filedescriptor"
@@ -782,18 +785,6 @@ dependencies = [
  "cfg-if",
  "libc",
  "wasi",
-]
-
-[[package]]
-name = "getrandom"
-version = "0.3.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd"
-dependencies = [
- "cfg-if",
- "libc",
- "r-efi",
- "wasip2",
 ]
 
 [[package]]
@@ -1227,15 +1218,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "notify-debouncer-mini"
-version = "0.7.0"
+name = "notify-debouncer-full"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17849edfaabd9a5fef1c606d99cfc615a8e99f7ac4366406d86c7942a3184cf2"
+checksum = "375bd3a138be7bfeff3480e4a623df4cbfb55b79df617c055cd810ba466fa078"
 dependencies = [
+ "file-id",
  "log",
  "notify",
  "notify-types",
- "tempfile",
+ "walkdir",
 ]
 
 [[package]]
@@ -1522,12 +1514,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "r-efi"
-version = "5.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"
-
-[[package]]
 name = "rand"
 version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1557,7 +1543,7 @@ version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba009ff324d1fc1b900bd1fdb31564febe58a8ccc8a6fdbb93b543d33b13ca43"
 dependencies = [
- "getrandom 0.2.16",
+ "getrandom",
  "libredox",
  "thiserror 1.0.69",
 ]
@@ -1852,7 +1838,7 @@ dependencies = [
 
 [[package]]
 name = "stoic"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1864,7 +1850,7 @@ dependencies = [
  "heck",
  "inquire",
  "notify",
- "notify-debouncer-mini",
+ "notify-debouncer-full",
  "pulldown-cmark",
  "serde",
  "serde_json",
@@ -1953,19 +1939,6 @@ name = "sync_wrapper"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bf256ce5efdfa370213c1dabab5935a12e49f2c58d15e9eac2870d3b4f27263"
-
-[[package]]
-name = "tempfile"
-version = "3.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d31c77bdf42a745371d260a26ca7163f1e0924b64afa0b688e61b5a9fa02f16"
-dependencies = [
- "fastrand",
- "getrandom 0.3.4",
- "once_cell",
- "rustix",
- "windows-sys 0.61.2",
-]
 
 [[package]]
 name = "terminfo"
@@ -2322,15 +2295,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
 
 [[package]]
-name = "wasip2"
-version = "1.0.1+wasi-0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0562428422c63773dad2c345a1882263bbf4d65cf3f42e90921f787ef5ad58e7"
-dependencies = [
- "wit-bindgen",
-]
-
-[[package]]
 name = "wasm-bindgen"
 version = "0.2.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2678,9 +2642,3 @@ name = "winnow"
 version = "0.7.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a5364e9d77fcdeeaa6062ced926ee3381faa2ee02d3eb83a5c27a8825540829"
-
-[[package]]
-name = "wit-bindgen"
-version = "0.46.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f17a85883d4e6d00e8a97c586de764dabcc06133f7f1d55dce5cdc070ad7fe59"

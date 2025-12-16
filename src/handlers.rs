@@ -16,8 +16,8 @@ use futures::FutureExt;
 use handlebars::Handlebars;
 use heck::ToTitleCase;
 use inquire::Confirm;
-use notify::RecursiveMode;
-use notify_debouncer_mini::new_debouncer;
+use notify::{EventKind, RecursiveMode};
+use notify_debouncer_full::new_debouncer;
 use serde_json::json;
 use std::cmp::Reverse;
 use std::{path::Path, sync::mpsc, time::Duration};
@@ -434,7 +434,7 @@ pub async fn run_watch(
 
     tokio::spawn(async move {
         let app = axum::Router::new()
-            .nest_service("/", ServeDir::new(output_dir_copy))
+            .fallback_service(ServeDir::new(output_dir_copy))
             .layer(livereload);
         let listener = TcpListener::bind(address).await.unwrap();
         axum::serve(listener, app).await.unwrap();
@@ -443,18 +443,23 @@ pub async fn run_watch(
     console.set_address(address)?;
 
     let (tx, rx) = mpsc::channel();
-    let mut debouncer = new_debouncer(Duration::from_millis(250), tx)?;
-    debouncer
-        .watcher()
-        .watch(input_dir, RecursiveMode::Recursive)?;
+    let mut debouncer = new_debouncer(Duration::from_millis(250), None, tx)?;
+    debouncer.watch(input_dir, RecursiveMode::Recursive)?;
 
     while let Ok(res) = rx.recv() {
         match res {
-            Ok(_) => {
-                if let Err(report) = run_build(console, input_dir, output_dir, false).await {
-                    console.log_report(report)?;
-                } else {
-                    reloader.reload();
+            Ok(events) => {
+                if events.iter().any(|event| {
+                    matches!(
+                        event.kind,
+                        EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
+                    )
+                }) {
+                    if let Err(report) = run_build(console, input_dir, output_dir, false).await {
+                        console.log_report(report)?;
+                    } else {
+                        reloader.reload();
+                    }
                 }
             }
             Err(e) => panic!("{:?}", e),
